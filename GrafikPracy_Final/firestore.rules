@@ -1,0 +1,324 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function activeUser() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('disabled', false) == false;
+    }
+
+    function isAdmin() {
+      return activeUser()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function validRole(value) {
+      return value == 'admin' || value == 'employee' || value == 'locator';
+    }
+
+    function validPersonKey(value) {
+      return value == '' || value == 'P' || value == 'M' || value == 'L';
+    }
+
+    function validRolePerson(role, personKey) {
+      return (role == 'employee' && (personKey == 'P' || personKey == 'M' || personKey == 'L'))
+        || (role != 'employee' && personKey == '');
+    }
+
+    function locationConfig() {
+      return exists(/databases/$(database)/documents/locationConfig/main)
+        ? get(/databases/$(database)/documents/locationConfig/main).data
+        : {};
+    }
+
+    function validInviteRole(role) {
+      return role in ['admin', 'employee', 'locator'];
+    }
+
+    function validInviteRolePerson(role, personKey) {
+      return (role == 'employee' && personKey in ['P', 'M', 'L'])
+        || (role in ['admin', 'locator'] && personKey == '');
+    }
+
+    function validInviteDocument(data) {
+      return data.keys().hasAll([
+          'email','displayName','role','personKey','status','expiresAt',
+          'createdAt','createdBy','claimedBy','claimedAt'
+        ])
+        && data.keys().hasOnly([
+          'email','displayName','role','personKey','status','expiresAt',
+          'createdAt','createdBy','claimedBy','claimedAt'
+        ])
+        && data.email is string
+        && data.email.size() <= 254
+        && data.email.matches('^[^@ ]+@[^@ ]+\\.[^@ ]+$')
+        && data.displayName is string
+        && data.displayName.size() >= 2
+        && data.displayName.size() <= 100
+        && validInviteRole(data.role)
+        && validInviteRolePerson(data.role, data.personKey)
+        && data.status == 'pending'
+        && data.expiresAt is timestamp
+        && data.expiresAt > request.time
+        && data.expiresAt <= request.time + duration.value(30, 'd')
+        && data.createdAt == request.time
+        && data.createdBy == request.auth.uid
+        && data.claimedBy == null
+        && data.claimedAt == null;
+    }
+
+    function validInviteClaimUpdate(inviteId) {
+      let profile = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return signedIn()
+        && request.auth.token.get('email_verified', false) == true
+        && resource.data.status == 'pending'
+        && resource.data.expiresAt > request.time
+        && resource.data.email == request.auth.token.get('email', '')
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status','claimedBy','claimedAt'])
+        && request.resource.data.status == 'claimed'
+        && request.resource.data.claimedBy == request.auth.uid
+        && request.resource.data.claimedAt == request.time
+        && profile.uid == request.auth.uid
+        && profile.inviteId == inviteId
+        && profile.email == request.auth.token.get('email', '')
+        && profile.displayName == resource.data.displayName
+        && profile.role == resource.data.role
+        && profile.personKey == resource.data.personKey
+        && profile.disabled == false
+        && profile.status == 'active'
+        && profile.createdAt == request.time
+        && profile.updatedAt == request.time;
+    }
+
+    function validInviteClaimProfile(uid) {
+      let inviteId = request.resource.data.inviteId;
+      let invitePath = /databases/$(database)/documents/userInvites/$(inviteId);
+      let invite = get(invitePath).data;
+      let inviteAfter = getAfter(invitePath).data;
+      return signedIn()
+        && request.auth.uid == uid
+        && request.auth.token.get('email_verified', false) == true
+        && request.resource.data.keys().hasAll([
+          'uid','email','displayName','role','personKey','disabled',
+          'createdAt','updatedAt','status','inviteId'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid','email','displayName','role','personKey','disabled',
+          'createdAt','updatedAt','status','inviteId'
+        ])
+        && inviteId is string
+        && inviteId.matches('^[a-f0-9]{64}$')
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.get('email', '')
+        && request.resource.data.disabled == false
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && invite.status == 'pending'
+        && invite.expiresAt > request.time
+        && invite.email == request.auth.token.get('email', '')
+        && request.resource.data.displayName == invite.displayName
+        && request.resource.data.role == invite.role
+        && request.resource.data.personKey == invite.personKey
+        && inviteAfter.status == 'claimed'
+        && inviteAfter.claimedBy == request.auth.uid
+        && inviteAfter.claimedAt == request.time;
+    }
+
+    match /userInvites/{inviteId} {
+      allow get: if isAdmin()
+        || (
+          signedIn()
+          && request.auth.token.get('email_verified', false) == true
+          && request.auth.token.get('email', '') == resource.data.email
+          && resource.data.status == 'pending'
+          && resource.data.expiresAt > request.time
+        );
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && inviteId.matches('^[a-f0-9]{64}$')
+        && validInviteDocument(request.resource.data);
+      allow update: if (
+          isAdmin()
+          && resource.data.status == 'pending'
+          && request.resource.data.status == 'revoked'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        ) || validInviteClaimUpdate(inviteId);
+      allow delete: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+
+      allow create: if validInviteClaimProfile(uid);
+
+      allow update: if isAdmin()
+        && uid != request.auth.uid
+        && request.resource.data.uid == uid
+        && request.resource.data.email is string
+        && request.resource.data.displayName is string
+        && request.resource.data.role in ['admin','employee','locator']
+        && request.resource.data.personKey in ['', 'P', 'M', 'L']
+        && validRolePerson(request.resource.data.role, request.resource.data.personKey)
+        && request.resource.data.disabled is bool
+        || (
+          isAdmin()
+          && uid != request.auth.uid
+          && request.resource.data.get('disabled', false) == true
+          && request.resource.data.get('uid', uid) == uid
+        );
+
+      allow delete: if false;
+    }
+
+    // Legacy monolithic schedule is retained read-only for administrators during migration.
+    // New clients must use schedules/{weekId}.
+    match /schedules/main {
+      allow read: if activeUser();
+      allow write: if false;
+    }
+
+    match /schedules/{weekId} {
+      allow read: if activeUser() && weekId != 'main';
+      allow create, update: if isAdmin()
+        && weekId != 'main'
+        && request.resource.data.weekId == weekId;
+      allow delete: if isAdmin() && weekId != 'main';
+    }
+
+    match /settings/main {
+      allow read: if activeUser();
+      allow write: if isAdmin();
+    }
+
+    match /proposals/{proposalId} {
+      allow read: if isAdmin() || (activeUser() && resource.data.fromUid == request.auth.uid);
+      allow create: if activeUser()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && (isAdmin()
+          || (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && request.resource.data.fromPerson == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.personKey));
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /chatMessages/{messageId} {
+      allow read: if activeUser();
+      allow create: if activeUser()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 500;
+      allow update, delete: if isAdmin();
+    }
+
+    match /whatsappReports/{reportId} {
+      allow read: if isAdmin() || (activeUser() && resource.data.uid == request.auth.uid);
+      allow create: if activeUser()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 500;
+      allow update, delete: if isAdmin();
+    }
+
+    match /locationConfig/main {
+      allow read: if isAdmin()
+        || activeUser();
+      allow write: if isAdmin()
+        || (activeUser() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator');
+    }
+
+    match /vehicleTracking/{vehicleId} {
+      function locCfg() {
+        return exists(/databases/$(database)/documents/locationConfig/main)
+          ? get(/databases/$(database)/documents/locationConfig/main).data
+          : {};
+      }
+      allow read: if isAdmin()
+        || (activeUser()
+          && (locationConfig().get('vehicleId', '') == vehicleId
+            || locationConfig().get('registration', '') == resource.data.get('registration', '')
+            || resource.data.get('ownerUid', '') == request.auth.uid));
+
+      // W projekcie działa jeden wspólny nadajnik pojazdu. Jego identyfikator
+      // jest ustalany przez administratora w locationConfig/main. Pracownik
+      // nie może utworzyć dokumentu pod innym vehicleId tylko przez zmianę
+      // lokalnej konfiguracji telefonu.
+      allow create: if isAdmin()
+        || (activeUser()
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
+          && request.resource.data.vehicleId == vehicleId
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.latitude is number
+          && request.resource.data.longitude is number
+          && request.resource.data.latitude >= -90
+          && request.resource.data.latitude <= 90
+          && request.resource.data.longitude >= -180
+          && request.resource.data.longitude <= 180);
+
+      allow update: if isAdmin()
+        || (activeUser()
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
+          && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.vehicleId == vehicleId
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.latitude is number
+          && request.resource.data.longitude is number
+          && request.resource.data.latitude >= -90
+          && request.resource.data.latitude <= 90
+          && request.resource.data.longitude >= -180
+          && request.resource.data.longitude <= 180);
+
+      allow delete: if isAdmin();
+
+      match /locations/{locationId} {
+        allow read: if isAdmin()
+          || (activeUser()
+            && (locationConfig().get('vehicleId', '') == vehicleId
+              || locationConfig().get('registration', '') == resource.data.get('registration', '')
+              || resource.data.get('ownerUid', '') == request.auth.uid));
+
+        allow create: if isAdmin()
+          || (activeUser()
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
+            && request.resource.data.vehicleId == vehicleId
+            && request.resource.data.ownerUid == request.auth.uid
+            && request.resource.data.latitude is number
+            && request.resource.data.longitude is number
+            && request.resource.data.latitude >= -90
+            && request.resource.data.latitude <= 90
+            && request.resource.data.longitude >= -180
+            && request.resource.data.longitude <= 180);
+
+        allow update: if isAdmin()
+          || (activeUser()
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
+            && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+            && resource.data.ownerUid == request.auth.uid
+            && request.resource.data.vehicleId == vehicleId
+            && request.resource.data.ownerUid == resource.data.ownerUid
+            && request.resource.data.latitude is number
+            && request.resource.data.longitude is number
+            && request.resource.data.latitude >= -90
+            && request.resource.data.latitude <= 90
+            && request.resource.data.longitude >= -180
+            && request.resource.data.longitude <= 180);
+
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /audit/{entryId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+  }
+}
