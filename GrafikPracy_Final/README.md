@@ -71,11 +71,32 @@ Health check:
 
 W repozytorium znajduje się `render.yaml`, który definiuje centralne API oraz PostgreSQL na Render. Po wdrożeniu publiczny adres usługi należy ustawić jako `EXPO_PUBLIC_API_URL` w procesie budowania APK.
 
-## Budowanie APK
+## Budowanie podpisanego APK
 
-Produkcyjny build APK jest wykonywany przez GitHub Actions. Workflow tworzy natywny projekt Android przez Expo Prebuild, osadza bundle JavaScript i publikuje zweryfikowany APK jako artefakt.
+Produkcyjny build APK jest wykonywany bezpłatnie przez GitHub Actions. Workflow tworzy natywny projekt Android przez Expo Prebuild, podpisuje release własnym keystore i publikuje zweryfikowany APK jako artefakt. Nie używamy EAS Build.
 
-Nie przechowujemy w repozytorium wygenerowanego katalogu `android/` ani gotowych APK.
+### Jednorazowe utworzenie keystore
+
+Na komputerze z JDK uruchom polecenie i zachowaj plik `grafik-pracy-upload.jks` w bezpiecznym miejscu. Nie generuj nowego keystore przy każdym buildzie, ponieważ aktualizacje aplikacji muszą być podpisane tym samym kluczem.
+
+```bash
+keytool -genkeypair -v -storetype JKS -keystore grafik-pracy-upload.jks -alias grafik-pracy -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Zapisz hasło magazynu, alias i hasło klucza. Następnie zakoduj plik jako Base64:
+- Linux: `base64 -w 0 grafik-pracy-upload.jks`
+- macOS: `base64 grafik-pracy-upload.jks | tr -d '\\n'`
+
+W repozytorium GitHub otwórz **Settings → Secrets and variables → Actions** i dodaj sekrety:
+- `KEYSTORE_BASE64`: cały wynik Base64, bez podziału na linie.
+- `KEYSTORE_PASSWORD`: hasło magazynu.
+- `KEY_ALIAS`: zwykle `grafik-pracy`.
+- `KEY_PASSWORD`: hasło klucza.
+- `EXPO_PUBLIC_API_URL`: adres centralnego API, np. `https://grafik-pracy-api-fra.onrender.com`.
+
+Keystore jest dekodowany do tymczasowego katalogu runnera i nie trafia do repozytorium ani artefaktu. Build release zakończy się błędem, jeśli wymagane sekrety nie są ustawione albo klucz nie przejdzie weryfikacji.
+
+Nie przechowujemy w repozytorium wygenerowanego katalogu `android/`, pliku keystore ani gotowych APK.
 
 ## Testy
 
