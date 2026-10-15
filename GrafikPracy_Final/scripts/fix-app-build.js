@@ -1,0 +1,82 @@
+const fs=require('fs');
+const path=require('path');
+const candidates=[path.join(process.cwd(),'GrafikPracy_Final','App.js'),path.join(process.cwd(),'App.js')];
+const file=candidates.find(p=>fs.existsSync(p));
+if(!file)process.exit(0);
+let s=fs.readFileSync(file,'utf8');
+const once=(a,b)=>{if(s.includes(b))return;s=s.replace(a,b);};
+// Fix report parsing in generated build. Keep these replacements idempotent.
+s=s.replace("match(/^(\\\\d{1,2}):(\\\\d{2})$/)","match(/^(\\d{1,2}):(\\d{2})$/)");
+s=s.replace("replace(/\\\\s+/g,'')","replace(/\\s+/g,'')");
+
+const re=/\n  const updateShift = \(dayIndex,shiftIndex,patch\) => \{[\s\S]*?\n  \};\n/g;let first=true;s=s.replace(re,m=>first?(first=false,m):'\n');
+s=s.replace(/\n\s*if \(readOnly \|\| dayHasPassed\(dayIndex\)\) return;[\s\S]*?\n\s*\};\n\n  const openOff/,'\n\n  const openOff');
+s=s.replace("if (data.conditions) setConditions(data.conditions);\n      if (data.conditions) setConditions(data.conditions);","if (data.conditions) setConditions(data.conditions);");
+s=s.replace("setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));","setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));");
+s=s.replace("const p = s.person && (personFilter==='all' || s.person===personFilter) ? PEOPLE[s.person] : null;","const p = s.person ? PEOPLE[s.person] : null;");
+s=s.replace("const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}","const sh=d.shifts[si]; const p=(sh.person && (personFilter==='all'||sh.person===personFilter)) ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,p?{backgroundColor:personColor(sh.person)}:{}]}");
+s=s.replace("!dayHasPassed(di) && s.person && (cloudRole==='admin' || s.person===myPerson)","!dayHasPassed(di) && s.person && cloudUser");
+s=s.replace("fromPerson:swapModal.person || myPerson,","fromPerson:swapModal.person || null,");
+s=s.replace("PERSON_KEYS.filter(k=>k!==myPerson)","PERSON_KEYS.filter(k=>k!==swapModal?.person)");
+const appImport="import GuestPreview from './GuestPreview';\nimport Dashboard from './Dashboard';\n";
+once("import {doc, setDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc} from 'firebase/firestore';\n","import {doc, setDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc} from 'firebase/firestore';\n"+appImport);
+once("  const [myPerson,setMyPerson] = useState('P');\n","  const [myPerson,setMyPerson] = useState('P');\n  const [guestMode,setGuestMode] = useState(false);\n");
+s=s.replace("setCloudUser(user || null);\n      setCloudError('');","setCloudUser(user || null);\n      if (user) setGuestMode(false);\n      setCloudError('');");
+s=s.replace("if (!FIREBASE_ENABLED || !db || !cloudUser) return;\n    const unsub = onSnapshot(doc(db,'schedules','main')","if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;\n    const unsub = onSnapshot(doc(db,'schedules','main')",1);
+s=s.replace("  },[cloudUser]);\n\n  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser) return;","  },[cloudUser,guestMode]);\n\n  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser) return;",1);
+s=s.replace("if (FIREBASE_ENABLED && (!cloudUser || !cloudReady)) {","if (FIREBASE_ENABLED && (!cloudUser || !cloudReady) && !guestMode) {");
+once("<TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity>","<TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity><TouchableOpacity style={[S.btn,{marginTop:8}]} onPress={()=>{setGuestMode(true);setTab('teraz')}}><Text style={S.btnText}>👻 KONTYNUUJ JAKO GOŚĆ</Text></TouchableOpacity>");
+s=s.replace("{tab==='grafik' ? schedule : tab==='summary' ? summary : settings}","{tab==='teraz' ? <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>{header}{guestMode&&<View style={S.proposalCard}><Text style={S.optionText}>👻 TRYB GOŚCIA</Text><Text style={S.helpLine}>Podgląd bieżącego grafiku bez logowania. Zaloguj się, aby korzystać z pełnych funkcji.</Text></View>}<Dashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times}/></ScrollView> : tab==='grafik' ? (guestMode ? <GuestPreview weeks={weeks} rotation={rotation} warehouse={warehouse} times={times}/> : <><View style={{paddingHorizontal:12,paddingTop:8}}><TouchableOpacity disabled={readOnly} style={[S.btn,{borderWidth:1,borderColor:'#ef4444'}]} onPress={clearCurrentWeek}><Text style={S.btnText}>🗑️ WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity></View>{schedule}</>) : tab==='summary' ? summary : settings}");
+if (!s.includes("tab==='teraz'&&S.navActive")) once("<TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}>","<TouchableOpacity style={[S.navBtn,tab==='teraz'&&S.navActive]} onPress={()=>setTab('teraz')}><Text style={S.navIcon}>🟢</Text><Text style={S.navText}>Teraz</Text></TouchableOpacity><TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}>");
+// Keep the summary navigation item structurally intact. Role-based visibility is handled by the app itself.
+// Navigation JSX is intentionally left untouched here.
+
+/* Weekly configuration, regeneration and warehouse fixes */
+once("  const [weekStart,setWeekStart] = useState(monday(new Date()));\n",
+"  const [weekStart,setWeekStart] = useState(monday(new Date()));\n  const [weekConfigs,setWeekConfigs] = useState({});\n  const [weekSetup,setWeekSetup] = useState(null);\n  const [weekSetupHours,setWeekSetupHours] = useState(10);\n  const [weekSetupRotation,setWeekSetupRotation] = useState('P');\n  const [weekSetupWarehouse,setWeekSetupWarehouse] = useState('PNT B');\n");
+once("          setWeeks(data.weeks || {});\n",
+"          setWeeks(data.weeks || {});\n          setWeekConfigs(data.weekConfigs || {});\n");
+s=s.replace("const data = {hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times:{",
+"const data = {hours,rotation,warehouse,weeks,weekConfigs,pin,pinEnabled,dark,times:{");
+s=s.replace("if (data.weeks) setWeeks(data.weeks);\n",
+"if (data.weeks) setWeeks(data.weeks);\n      if (data.weekConfigs) setWeekConfigs(data.weekConfigs);\n");
+s=s.replace("const payload = {hours,rotation,warehouse,weeks,times:{",
+"const payload = {hours,rotation,warehouse,weeks,weekConfigs,times:{");
+s=s.replace("},[ready,hours,rotation,warehouse,weeks,times,personColors,conditions,cloudUser,cloudRole]);",
+"},[ready,hours,rotation,warehouse,weeks,weekConfigs,times,personColors,conditions,cloudUser,cloudRole]);");
+/* Empty-week and reset controls */
+once("  const currentWeek = weeks[wkKey] || generateWeek(rotation,warehouse);",
+"  const emptyWeek = wh => generateWeek(rotation,wh).map(d=>({...d,shifts:d.shifts.map(s=>({...s,person:null,manual:false,locked:false}))}));\n  const clearCurrentWeek = () => {\n    if (readOnly) return;\n    Alert.alert('Wyczyść tydzień','Usunąć wszystkich pracowników z całego aktualnie wyświetlanego tygodnia?', [\n      {text:'Anuluj',style:'cancel'},\n      {text:'Wyczyść cały tydzień',style:'destructive',onPress:()=>{\n        const wh=weekConfigs[wkKey]?.warehouse || warehouse;\n        setWeeks(prev=>({...prev,[wkKey]:emptyWeek(wh)}));\n      }}\n    ]);\n  };\n  const currentWeek = weeks[wkKey] || emptyWeek(weekConfigs[wkKey]?.warehouse || warehouse);");
+s=s.replace("const currentWeek = weeks[wkKey] || generateWeek(rotation,warehouse);",
+"const currentWeek = weeks[wkKey] || emptyWeek(weekConfigs[wkKey]?.warehouse || warehouse);");
+s=s.replace("if (!weeks[wkKey]) {\n      setWeeks(prev => ({...prev,[wkKey]:generateWeek(rotation,warehouse)}));\n    }\n  },[wkKey]);",
+"if (!ready) return;\n    if (!weeks[wkKey] && !weekConfigs[wkKey] && !weekSetup) {\n      setWeekSetup(weekStart);\n      setWeekSetupHours(hours);\n      setWeekSetupRotation(rotation);\n      setWeekSetupWarehouse(warehouse);\n    }\n  },[ready,wkKey,weeks,weekConfigs]);");
+s=s.replace("  const changeHours = h => {\n    if (readOnly) return;\n    setHours(h);\n    setTimes(DEFAULT_TIMES[h]);\n  };",
+"  const changeHours = h => {\n    if (readOnly) return;\n    setHours(h);\n    setTimes(DEFAULT_TIMES[h]);\n    setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours:h,times:DEFAULT_TIMES[h],rotation:prev[wkKey]?.rotation||rotation,warehouse:prev[wkKey]?.warehouse||warehouse}}));\n  };");
+s=s.replace("if (dayHasPassed(di) || s.locked || s.manual) return;","if (dayHasPassed(di) || s.locked) return;");
+s=s.replace("if (dayHasPassed(di) || s.locked || s.manual) return;\n      const forcedOff","if (dayHasPassed(di) || s.locked) return;\n      const forcedOff");
+s=s.replace("s.person=c.person; s.manual=false; counts[c.person]++;","s.person=c.person; counts[c.person]++;");
+s=s.replace("if(s.person===null) s.manual=true;","if(s.person===null) s.manual=false;");
+s=s.replace("const moveWeek = n => setWeekStart(addDays(weekStart,n*7));\n  const todayWeek = () => setWeekStart(monday(new Date()));",
+"const openWeekSetup = next => {\n    setWeekSetup(next);\n    const key=iso(next), cfg=weekConfigs[key];\n    setWeekSetupHours(cfg?.hours || 10);\n    setWeekSetupRotation(cfg?.rotation || rotation);\n    setWeekSetupWarehouse(cfg?.warehouse || warehouse);\n  };\n  const confirmWeekSetup = () => {\n    if(!weekSetup || readOnly) return;\n    const key=iso(weekSetup);\n    const cfg={hours:weekSetupHours,rotation:weekSetupRotation,warehouse:weekSetupWarehouse,times:DEFAULT_TIMES[weekSetupHours]};\n    setWeekConfigs(prev=>({...prev,[key]:cfg}));\n    setHours(weekSetupHours);\n    setRotation(weekSetupRotation);\n    setWarehouse(weekSetupWarehouse);\n    setTimes(DEFAULT_TIMES[weekSetupHours]);\n    setWeeks(prev=>({...prev,[key]:prev[key]||generateWeek(weekSetupRotation,weekSetupWarehouse)}));\n    setWeekStart(weekSetup);\n    setWeekSetup(null);\n  };\n  const moveWeek = n => { const next=addDays(weekStart,n*7); if(weeks[iso(next)]||weekConfigs[iso(next)]) setWeekStart(next); else openWeekSetup(next); };\n  const todayWeek = () => { const next=monday(new Date()); if(weeks[iso(next)]||weekConfigs[iso(next)]) setWeekStart(next); else openWeekSetup(next); };");
+s=s.replace("  const newWeek = () => {\n    const next = addDays(weekStart,7);\n    setWeekStart(next);\n    if (!weeks[iso(next)]) {\n      setWeeks(prev => ({...prev,[iso(next)]:generateWeek(rotation,warehouse)}));\n    }\n  };",
+"  const newWeek = () => moveWeek(1);");
+once("  const settings = (\n",
+`  const weekSetupDialog = (
+    <Modal visible={!!weekSetup} transparent animationType='fade' onRequestClose={()=>{}}><View style={S.overlay}><View style={S.modal}>
+      <Text style={S.modalTitle}>⚙️ Ustawienia nowego tygodnia</Text>
+      <Text style={S.helpLine}>Przed rozpoczęciem tygodnia określ jego parametry. Nie będą one automatycznie przenoszone na następne tygodnie.</Text>
+      <Text style={S.section}>Godziny pracy</Text><View style={S.row}>{[10,12].map(h=><TouchableOpacity key={h} style={[S.btn,weekSetupHours===h&&S.active]} onPress={()=>setWeekSetupHours(h)}><Text style={S.btnText}>{h} H</Text></TouchableOpacity>)}</View>
+      <Text style={S.section}>Start rotacji</Text><View style={S.row}>{['P','M'].map(k=><TouchableOpacity key={k} style={[S.btn,weekSetupRotation===k&&S.active]} onPress={()=>setWeekSetupRotation(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</View>
+      <Text style={S.section}>Magazyn</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,weekSetupWarehouse===w&&S.active]} onPress={()=>setWeekSetupWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
+      <TouchableOpacity style={S.generateFull} onPress={confirmWeekSetup}><Text style={S.btnText}>▶️ UTWÓRZ TEN TYDZIEŃ</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.btn,{marginTop:10,borderWidth:1,borderColor:'#ef4444'}]} onPress={clearCurrentWeek}><Text style={S.btnText}>🗑️ WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity>
+    </View></View></Modal>
+  );
+
+  const settings = (\n`);
+
+s=s.replace("onPress={()=>!readOnly && setWarehouse(w)}","onPress={()=>{if(readOnly)return; const wh=w; setWarehouse(wh); setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours,rotation:prev[wkKey]?.rotation||rotation,warehouse:wh,times}})); setWeek(prev=>prev.map(d=>({...d,warehouse:wh,shifts:d.shifts.map(s=>s.locked?s:{...s,warehouse:wh})})));}}");
+
+fs.writeFileSync(file,s);
+console.log('final integration patch ready');
