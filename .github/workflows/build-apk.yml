@@ -103,8 +103,8 @@ jobs:
           start = source.index(marker)
           prefix, build_types = source[:start], source[start:]
           updated, count = re.subn(
-              r"(release\\s*\\{.*?signingConfig\\s+)signingConfigs\\.debug",
-              r"\\1signingConfigs.release",
+              r"(release\s*\{.*?signingConfig\s+)signingConfigs\.debug",
+              r"\1signingConfigs.release",
               build_types,
               count=1,
               flags=re.S,
