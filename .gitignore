@@ -1,0 +1,8 @@
+node_modules/
+.expo/
+.expo-shared/
+*.log
+.DS_Store
+
+credentials.json
+credential.json
