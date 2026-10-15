@@ -1,49 +1,56 @@
 # Repo cleanup status and deferred work
 
-Date: 2026-10-15
-Repository: `gry17051997-commits/3gf`
-Baseline: `main` at `82ea492d949689ca4dbe4c7b27cdbcbcaff7acac`
+Date: 2026-10-15  
+Repository: `gry17051997-commits/3gf`  
+Baseline: `main` at `82ea492d949689ca4dbe4c7b27cdbcbcaff7acac`  
 Working branch: `chore/repo-cleanup-audit-2026-10-15`
 
 ## Safety rules
 
 - Do not modify `main` directly.
-- Do not delete any branch until its complete tree has been compared with the current main tree and unique changes have been classified.
+- Do not delete a branch until its complete tree has been compared with `main` and unique changes have been classified.
 - Preserve `backup/2026-10-11-current-stage` and `backup/2026-10-13-maptiler-working` until recovery and MapTiler behavior have been verified.
 - Do not delete or refactor GPS, API, map, app bootstrap, build scripts, or runtime files as part of cosmetic cleanup.
-- Keep deferred items here and revisit them after prerequisites become available.
+- Deferred work must remain documented here and in `BRANCH_TREE_AUDIT.md`.
 
-## Initial findings
+## Completed on this working branch
 
-- The current `main` tree contains 67 entries.
-- The branch list contains 79 branches at audit start, including `main`; a cleanup working branch has since been created.
-- The current main commit and the listed branch tip commits appear to have no Git parents in the GitHub API. Standard ancestry-based branch comparisons therefore return “No common ancestor”. Branches must be compared by their file trees and blob SHAs, not assumed merged/unmerged from ancestry.
-- `GrafikPracy_Final/AppRuntime.js` is about 191 KB. It is a refactoring candidate, not a deletion candidate.
-- Root workflows include multiple APK, diagnostic, validation, web deployment, audit-package, backend and CodeQL workflows. Consolidation must preserve distinct checks and artifact behavior.
-- `GrafikPracy_Final/.github/workflows/web.yml` is nested under the app directory and is not a standard GitHub Actions workflow location. However, it claims to be a regression fixture, so do not remove until its test dependency is checked.
-- `GrafikPracy_Final/functions/package.json` exists without visible function source in the current tree. Verify whether this folder is obsolete before removing it.
-- Root audit files can potentially be organized under `docs/audits/`, but workflows that copy them must be updated in the same change.
-- README describes central API + PostgreSQL; ROADMAP contains older Firebase references. Reconcile documentation only after checking the actual implementation and current product direction.
+- Created `docs/repo-cleanup/BRANCH_TREE_AUDIT.md` with tree/blob comparisons for all 78 existing non-main branches.
+- Created `docs/audits/` and moved the current audit instructions/context/request there, updating them to the central API + PostgreSQL architecture.
+- Updated `.github/workflows/gemini-audit-package.yml` to package the new documentation paths.
+- Removed obsolete root copies of the audit documents after updating their workflow references.
+- Removed `AUDIT_PACKAGE_TRIGGER.txt`; it was not referenced by a workflow.
+- Removed `GrafikPracy_Final/.github/workflows/web.yml`; it was a nested, manually triggered workflow fixture and was not referenced by the regression test suite.
+- Removed `GrafikPracy_Final/functions/package.json`; it was the only file in the functions directory, and current app config/README/tests describe central API + PostgreSQL, not Firebase Functions.
+- Reduced duplicate automatic CI runs: `android-apk.yml`, `diagnostic-apk.yml`, `full-audit.yml`, and `gemini-audit-package.yml` are now manual-trigger workflows. PR validation remains responsible for its automated tests/build; production APK and web deployment remain separate.
+- No production application source files were modified. GPS, map, API, runtime and build-fix scripts remain untouched.
+- `main` has not been modified.
 
-## Work in progress
+## Branch audit findings
 
-1. Compare every branch tip against `main` using recursive tree snapshots and per-file blob SHAs because ancestry comparison is unavailable.
-2. Classify branches into: identical tree, same tree except documentation/workflows, unique source changes, backup/recovery, and unclear.
-3. Audit workflow overlap and document exact safe consolidation candidates.
-4. Inspect package scripts and build workflows for deterministic execution differences.
-5. Prepare file organization as a separate, reviewable change.
-6. Run available tests and build checks on the working branch before proposing a PR.
+- The repository had 79 branches at audit start; a separate cleanup branch has since been added.
+- GitHub's compare endpoint reports “No common ancestor” for the old branch tips. The audit therefore compared recursive trees and file blob SHAs instead of relying on merge ancestry.
+- Exact same-tree groups and low-difference GPS/API branches are listed in `BRANCH_TREE_AUDIT.md`.
+- Several branches contain unique GPS, API, backend or map changes and must not be deleted by name alone.
+- Branch deletion could not be performed with the available GitHub operations in this session. The report lists safe candidates for a later deletion pass.
 
-## Deferred items to revisit later
+## Verification still required
 
-- Delete branches only after tree-diff report confirms no unique or needed recovery content.
-- Remove `GrafikPracy_Final/functions/` only after confirming no deployment, import, or workflow references.
-- Remove nested `GrafikPracy_Final/.github/workflows/web.yml` only after confirming tests do not rely on it.
-- Move root audit files only together with updates to all workflow references.
-- Consolidate workflows only after confirming the replacement retains APK artifacts, runtime diagnostics, web deployment, backend checks, and CodeQL.
-- Refactor `AppRuntime.js` only after mapping imports and adding regression coverage; do not combine this with repository cleanup.
-- Revisit unresolved GPS/map/runtime changes only after comparing the working MapTiler backup and the current main behavior.
+1. Run regression tests, Expo config validation, web export, Android prebuild and APK build via CI on this branch.
+2. Review the PR checks before merging.
+3. Confirm the audit-package workflow includes all new docs and no stale root paths.
+4. Recheck the branch list and tree SHA groups immediately before any deletion.
+5. Confirm the current GPS map provider requirement against `backup/2026-10-13-maptiler-working`; do not replace MapTiler with OSM/Leaflet without explicit verification.
 
-## No destructive cleanup performed
+## Deferred items
 
-This report and the working branch are preparatory. No branch has been deleted, no production source file has been changed, and `main` has not been modified.
+- Delete redundant branch refs only after final recheck; this action is unavailable in the current tool set.
+- Refactor `GrafikPracy_Final/AppRuntime.js` only after mapping imports and adding regression coverage.
+- Further consolidate workflows only after CI proves artifact, runtime diagnostic, backend, web deployment and CodeQL coverage remains intact.
+- Revisit `package.json` `postinstall` and the three build-fix scripts after reading their exact effects and testing deterministic builds.
+- Reconcile any remaining README/ROADMAP historical references without changing product behavior.
+- GPS/map/runtime fixes are separate from this cleanup and must be evaluated against the MapTiler working backup.
+
+## Safety status
+
+No branches were deleted, no APK was published, and no production code was changed. All edits are isolated on the cleanup branch pending CI and review.
