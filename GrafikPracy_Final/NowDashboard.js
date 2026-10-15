@@ -39,6 +39,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
  const [location,setLocation]=useState(null);
  const [locationError,setLocationError]=useState('');
  const [locationAddress,setLocationAddress]=useState('Ustalanie adresu…');
+ const [miniMapDiagnostic,setMiniMapDiagnostic]=useState('Mapa oczekuje na lokalizację GPS…');
  const miniMapRef=useRef(null),miniMapLoaded=useRef(false);
  const syncMiniMap=()=>{const lat=Number(location?.latitude),lon=Number(location?.longitude);if(!miniMapLoaded.current||!miniMapRef.current||!Number.isFinite(lat)||!Number.isFinite(lon))return;miniMapRef.current.injectJavaScript('window.setGpsPoint('+lat+','+lon+'); true;');};
  useEffect(()=>{syncMiniMap();},[location?.latitude,location?.longitude]);
