@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - fix/p0-production-hardening
     paths:
       - "GrafikPracy_Final/**"
       - ".github/workflows/build-apk.yml"
