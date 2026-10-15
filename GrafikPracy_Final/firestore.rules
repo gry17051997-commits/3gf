@@ -1,0 +1,158 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function validRole(value) {
+      return value == 'admin' || value == 'employee';
+    }
+
+    function validPersonKey(value) {
+      return value == 'P' || value == 'M' || value == 'L';
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email','role','createdAt'])
+        && request.resource.data.role == 'employee'
+        && request.resource.data.email is string;
+
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && !isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['personKey'])
+        && validPersonKey(request.resource.data.personKey)
+        && request.resource.data.role == resource.data.role;
+
+      allow update: if isAdmin()
+        && uid != request.auth.uid
+        && request.resource.data.uid == uid
+        && validRole(request.resource.data.role)
+        && validPersonKey(request.resource.data.personKey);
+
+      allow delete: if false;
+    }
+
+    match /schedules/main {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /proposals/{proposalId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.fromUid == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /chatMessages/{messageId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 500;
+      allow update, delete: if isAdmin();
+    }
+
+    match /whatsappReports/{reportId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 500;
+      allow update, delete: if isAdmin();
+    }
+
+    match /locationConfig/main {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /vehicleTracking/{vehicleId} {
+      allow read: if signedIn();
+
+      // W projekcie działa jeden wspólny nadajnik pojazdu. Jego identyfikator
+      // jest ustalany przez administratora w locationConfig/main. Pracownik
+      // nie może utworzyć dokumentu pod innym vehicleId tylko przez zmianę
+      // lokalnej konfiguracji telefonu.
+      allow create: if isAdmin()
+        || (signedIn()
+          && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+          && request.resource.data.vehicleId == vehicleId
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.latitude is number
+          && request.resource.data.longitude is number
+          && request.resource.data.latitude >= -90
+          && request.resource.data.latitude <= 90
+          && request.resource.data.longitude >= -180
+          && request.resource.data.longitude <= 180);
+
+      allow update: if isAdmin()
+        || (signedIn()
+          && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+          && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.vehicleId == vehicleId
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.latitude is number
+          && request.resource.data.longitude is number
+          && request.resource.data.latitude >= -90
+          && request.resource.data.latitude <= 90
+          && request.resource.data.longitude >= -180
+          && request.resource.data.longitude <= 180);
+
+      allow delete: if isAdmin();
+
+      match /locations/{locationId} {
+        allow read: if signedIn();
+
+        allow create: if isAdmin()
+          || (signedIn()
+            && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+            && request.resource.data.vehicleId == vehicleId
+            && request.resource.data.ownerUid == request.auth.uid
+            && request.resource.data.latitude is number
+            && request.resource.data.longitude is number
+            && request.resource.data.latitude >= -90
+            && request.resource.data.latitude <= 90
+            && request.resource.data.longitude >= -180
+            && request.resource.data.longitude <= 180);
+
+        allow update: if isAdmin()
+          || (signedIn()
+            && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+            && resource.data.ownerUid == request.auth.uid
+            && request.resource.data.vehicleId == vehicleId
+            && request.resource.data.ownerUid == resource.data.ownerUid
+            && request.resource.data.latitude is number
+            && request.resource.data.longitude is number
+            && request.resource.data.latitude >= -90
+            && request.resource.data.latitude <= 90
+            && request.resource.data.longitude >= -180
+            && request.resource.data.longitude <= 180);
+
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /audit/{entryId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+  }
+}
