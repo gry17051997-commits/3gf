@@ -1,0 +1,138 @@
+name: Android Runtime Diagnostics
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "GrafikPracy_Final/**"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grafik-pracy-runtime-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPO_NO_DOCTOR: "1"
+  CI: "1"
+  EXPO_NO_TELEMETRY: "1"
+
+jobs:
+  runtime_smoke:
+    name: Android runtime smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: GrafikPracy_Final
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: GrafikPracy_Final/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify production entry point
+        run: |
+          test -f App.js
+          grep -q "export default function App" App.js
+          grep -q "AppRuntime" App.js
+          test -f AppRuntime.js
+          test -f LocationService.js
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install --non-interactive
+
+      - name: Configure embedded JS bundling
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("android/app/build.gradle")
+          text = path.read_text(encoding="utf-8")
+          marker = "react {\n"
+          if marker not in text:
+              raise SystemExit("React Gradle configuration block not found")
+          block = '''react {
+              cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())
+              bundleCommand = "export:embed"
+              debuggableVariants = []
+          '''
+          path.write_text(text.replace(marker, block, 1), encoding="utf-8")
+          PY
+
+      - name: Build APK
+        working-directory: GrafikPracy_Final/android
+        run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo usermod -aG kvm "$USER"
+          test -e /dev/kvm
+
+      - name: Start Android emulator and run production app
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: |
+            set -eu
+            adb wait-for-device
+            adb install -r "$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk"
+            adb logcat -c
+            adb shell monkey -p pl.grafikpracy.app 1
+            sleep 8
+
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+            adb pull /sdcard/window.xml "$GITHUB_WORKSPACE/runtime-window.xml" >/dev/null 2>&1
+            adb logcat -d > "$GITHUB_WORKSPACE/runtime-logcat.txt"
+            adb shell pidof pl.grafikpracy.app > "$GITHUB_WORKSPACE/runtime-pid.txt"
+
+            test -s "$GITHUB_WORKSPACE/runtime-pid.txt"
+            grep -Eq "ZALOGUJ SIĘ|Grafik Pracy" "$GITHUB_WORKSPACE/runtime-window.xml"
+
+            if grep -Eq "FATAL EXCEPTION|Unable to load script|Could not connect to Metro" "$GITHUB_WORKSPACE/runtime-logcat.txt"; then
+              echo "Production app reported a fatal startup/runtime error."
+              exit 1
+            fi
+
+            echo "PRODUCTION APP STARTED"
+            echo "PRODUCTION UI MARKER FOUND"
+            echo "PRODUCTION PROCESS ALIVE"
+
+      - name: Upload runtime diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grafik-pracy-runtime-smoke
+          path: |
+            ${{ github.workspace }}/runtime-logcat.txt
+            ${{ github.workspace }}/runtime-window.xml
+            ${{ github.workspace }}/runtime-pid.txt
+          if-no-files-found: warn
+          retention-days: 14
