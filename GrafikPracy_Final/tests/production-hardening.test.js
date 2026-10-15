@@ -374,7 +374,7 @@ test('mini map diagnostics and MapTiler key are wired into the APK build', () =>
   const dashboard = fs.readFileSync(new URL('../NowDashboard.js', import.meta.url), 'utf8');
   const workflow = fs.readFileSync(new URL('../../.github/workflows/build-apk.yml', import.meta.url), 'utf8');
   assert.match(dashboard, /const \[miniMapDiagnostic,setMiniMapDiagnostic\]/);
-  assert.match(dashboard, /api\.maptiler\.com\/maps\/streets-v2/);
+  assert.match(dashboard, /api\.maptiler\.com\/maps\/streets-v4/);
   assert.match(dashboard, /tiles\.on\('tileerror'/);
   assert.match(workflow, /EXPO_PUBLIC_MAPTILER_KEY:\s*\$\{\{\s*secrets\.EXPO_PUBLIC_MAPTILER_KEY\s*\}\}/);
   assert.match(workflow, /test -n "\$EXPO_PUBLIC_MAPTILER_KEY"/);
