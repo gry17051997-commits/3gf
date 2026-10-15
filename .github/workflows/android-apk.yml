@@ -1,0 +1,108 @@
+name: Build Android APK
+# CI validation: regression suite and installable APK build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "GrafikPracy_Final/**"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grafik-pracy-android-build
+  cancel-in-progress: true
+
+env:
+  EXPO_NO_DOCTOR: "1"
+  CI: "1"
+
+jobs:
+  build_android:
+    name: Build installable Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    defaults:
+      run:
+        working-directory: GrafikPracy_Final
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: GrafikPracy_Final/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Verify Android SDK
+        run: |
+          test -n "$ANDROID_HOME"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          "$ANDROID_HOME/platform-tools/adb" version
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Apply application build fixes
+        run: node scripts/fix-app-build.js
+
+      - name: Apply chat build fixes
+        run: node scripts/fix-chat-build.js
+
+      - name: Apply rotation switch fix
+        run: node scripts/fix-rotation-switch.js
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install --non-interactive
+
+      - name: Configure embedded JS bundling
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("android/app/build.gradle")
+          text = path.read_text()
+          marker = "react {\n"
+          if marker not in text:
+              raise SystemExit("React Gradle configuration block not found")
+          block = '''react {
+              cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())
+              bundleCommand = "export:embed"
+              debuggableVariants = []
+          '''
+          path.write_text(text.replace(marker, block, 1))
+          PY
+          grep -A5 "^react {" android/app/build.gradle
+
+      - name: Build APK
+        working-directory: GrafikPracy_Final/android
+        run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
+
+      - name: Verify APK
+        working-directory: GrafikPracy_Final
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/(index\\.android\\.bundle|.*\\.hbc)$"
+          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Grafik-Pracy-Android-APK
+          path: GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
