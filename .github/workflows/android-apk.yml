@@ -1,0 +1,162 @@
+name: Build Android APK
+# CI validation: regression suite and installable APK build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "GrafikPracy_Final/**"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grafik-pracy-android-build
+  cancel-in-progress: true
+
+env:
+  EXPO_NO_DOCTOR: "1"
+  CI: "1"
+
+jobs:
+  build_android:
+    name: Build installable Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    defaults:
+      run:
+        working-directory: GrafikPracy_Final
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: GrafikPracy_Final/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Verify Android SDK
+        run: |
+          test -n "$ANDROID_HOME"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          "$ANDROID_HOME/platform-tools/adb" version
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Apply application build fixes
+        run: node scripts/fix-app-build.js
+
+      - name: Apply chat build fixes
+        run: node scripts/fix-chat-build.js
+
+      - name: Apply rotation switch fix
+        run: node scripts/fix-rotation-switch.js
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install --non-interactive
+
+      - name: Configure embedded JS bundling
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("android/app/build.gradle")
+          text = path.read_text()
+          marker = "react {\n"
+          if marker not in text:
+              raise SystemExit("React Gradle configuration block not found")
+          block = '''react {
+              cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())
+              bundleCommand = "export:embed"
+              debuggableVariants = []
+          '''
+          path.write_text(text.replace(marker, block, 1))
+          PY
+          grep -A5 "^react {" android/app/build.gradle
+
+      - name: Build APK
+        working-directory: GrafikPracy_Final/android
+        run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
+
+      - name: Verify APK
+        working-directory: GrafikPracy_Final
+        run: |
+          test -s android/app/build/outputs/apk/release/app-release.apk
+          unzip -l android/app/build/outputs/apk/release/app-release.apk | grep -E "assets/(index\.android\.bundle|.*\.hbc)$"
+          ls -lh android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Automated Android 16 smoke test
+        if: ${{ vars.RUN_ANDROID16_SMOKE == '1' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          cores: 4
+          ram-size: 4096M
+          heap-size: 1024M
+          emulator-boot-timeout: 1800
+          force-avd-creation: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: false
+          script: |
+            set -eu
+            mkdir -p "$GITHUB_WORKSPACE/android16-smoke"
+            adb wait-for-device
+            set +e
+            adb install -r "$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk" > "$GITHUB_WORKSPACE/android16-smoke/install.txt" 2>&1
+            install_rc=$?
+            set -e
+            cat "$GITHUB_WORKSPACE/android16-smoke/install.txt"
+            echo "INSTALL_RC=$install_rc"
+            adb shell pm path pl.grafikpracy.app || true
+            adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER pl.grafikpracy.app || true
+            if [ "$install_rc" -ne 0 ]; then exit "$install_rc"; fi
+            adb shell am force-stop pl.grafikpracy.app || true
+            adb logcat -c || true
+            adb shell monkey -p pl.grafikpracy.app 1 > "$GITHUB_WORKSPACE/android16-smoke/monkey.txt" 2>&1 || true
+            cat "$GITHUB_WORKSPACE/android16-smoke/monkey.txt"
+            sleep 8
+            echo "=== PID ==="
+            adb shell pidof pl.grafikpracy.app || true
+            echo "=== LOGCAT: React/Android fatal errors ==="
+            adb logcat -d -v threadtime | grep -Ei "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|SoLoader|UnsatisfiedLinkError|pl.grafikpracy.app|Unable to start activity|Exception" || true
+            echo "=== LOGCAT: last 500 lines ==="
+            adb logcat -d -v threadtime | tail -n 500 || true
+            adb logcat -d -v threadtime > "$GITHUB_WORKSPACE/android16-smoke/logcat.txt" || true
+            adb exec-out screencap -p > "$GITHUB_WORKSPACE/android16-smoke/grafik-screen.png" || true
+            test -s "$GITHUB_WORKSPACE/android16-smoke/logcat.txt"
+            test -s "$GITHUB_WORKSPACE/android16-smoke/grafik-screen.png"
+
+      - name: Upload Android 16 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Grafik-Pracy-Android16-diagnostics
+          path: android16-smoke/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Grafik-Pracy-Android-APK
+          path: GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
+          retention-days: 14
