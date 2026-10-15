@@ -47,6 +47,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run production hardening tests
+        run: npm test
+
       - name: Verify central API URL
         run: |
           test -n "$EXPO_PUBLIC_API_URL"
