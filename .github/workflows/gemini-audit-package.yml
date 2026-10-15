@@ -19,9 +19,10 @@ jobs:
           mkdir -p audit-package
           cp -r GrafikPracy_Final audit-package/
           cp -r .github audit-package/.github
-          cp AUDIT_GEMINI.md audit-package/
-          cp GEMINI_AUDIT_REQUEST.md audit-package/
-          cp GEMINI_AUDIT_CONTEXT.md audit-package/
+          mkdir -p audit-package/docs/audits
+          cp docs/audits/AUDIT_GEMINI.md audit-package/docs/audits/
+          cp docs/audits/GEMINI_AUDIT_REQUEST.md audit-package/docs/audits/
+          cp docs/audits/GEMINI_AUDIT_CONTEXT.md audit-package/docs/audits/
           cp .gitignore audit-package/
           rm -rf audit-package/GrafikPracy_Final/node_modules
           rm -rf audit-package/GrafikPracy_Final/.expo
