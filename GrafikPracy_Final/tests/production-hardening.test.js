@@ -348,3 +348,15 @@ test('central API client prefixes every endpoint with the backend /api mount', (
   assert.ok(client.includes("api('/auth/login'"));
   assert.ok(server.includes("app.post('/api/auth/login'"));
 });
+
+
+test('MapTiler key is supplied to Android APK builds and mini-map reports tile failures', async () => {
+  const fs = await import('node:fs/promises');
+  const workflow = await fs.readFile(new URL('../../.github/workflows/build-apk.yml', import.meta.url), 'utf8');
+  const dashboard = await fs.readFile(new URL('../NowDashboard.js', import.meta.url), 'utf8');
+  assert.match(workflow, /EXPO_PUBLIC_MAPTILER_KEY:\s*\$\{\{\s*secrets\.EXPO_PUBLIC_MAPTILER_KEY\s*\}\}/);
+  assert.match(workflow, /fix\/native-maplibre-mini-map/);
+  assert.match(dashboard, /process\.env\.EXPO_PUBLIC_MAPTILER_KEY/);
+  assert.match(dashboard, /tileerror/);
+  assert.match(dashboard, /setNativeMapSize/);
+});
