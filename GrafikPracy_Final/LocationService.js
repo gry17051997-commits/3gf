@@ -190,8 +190,16 @@ export async function ensureVehicleLocationTracking(){
   if(!(await Location.hasServicesEnabledAsync()))return {ok:false,reason:'location-services-disabled'};
   let running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   let restarted=false;
-  if(running && Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION){
-    await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+  const diagnostics=await getLocationDiagnostics();
+  const lastTaskAt=Number(diagnostics.lastTaskAt||0);
+  const taskStale=running&&(!lastTaskAt||Date.now()-lastTaskAt>60000);
+  const optionsOutdated=running&&Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION;
+  // Android może zgłaszać, że task nadal działa, mimo że po zablokowaniu ekranu
+  // przestał dostarczać pomiary. Wtedy samo hasStartedLocationUpdatesAsync nie wystarcza.
+  if(running&&(optionsOutdated||taskStale)){
+    try{await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);}catch(error){
+      await patchDiagnostics({lastRestartStopError:String(error?.message||error).slice(0,200),lastRestartStopErrorAt:Date.now()});
+    }
     running=false;
   }
   if(!running){
@@ -202,7 +210,7 @@ export async function ensureVehicleLocationTracking(){
     await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,enabled:true,optionsVersion:LOCATION_OPTIONS_VERSION,vehicleId:normalizeVehicleId(effectiveVehicleId),registration:assignment?.registration||cfg.registration||''}));
   }
   try{await saveLocation(await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High}));}catch(e){console.log('LOCATION_REFRESH_ERROR',e);}
-  await patchDiagnostics({lastEnsureAt:Date.now(),lastEnsureError:null,lastEnsureErrorAt:null,lastEnsureRestarted:restarted,assignmentUsedCache:!assignment?.vehicleId});
+  await patchDiagnostics({lastEnsureAt:Date.now(),lastEnsureError:null,lastEnsureErrorAt:null,lastEnsureRestarted:restarted,lastEnsureRestartReason:taskStale?'task-stale':optionsOutdated?'options-outdated':!running?'task-missing':'healthy',assignmentUsedCache:!assignment?.vehicleId});
   return {ok:true,restarted,vehicleId:effectiveVehicleId,registration:assignment?.registration||cfg.registration||''};
 }
 
