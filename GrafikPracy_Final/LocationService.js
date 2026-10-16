@@ -181,7 +181,7 @@ export async function ensureVehicleLocationTracking(){
   try{assignment=await getDeviceAssignment(token);}catch(error){assignmentError=error;}
   // Chwilowy brak sieci/API nie może blokować wznowienia lokalnej usługi GPS.
   // Użyj ostatniego poprawnego przypisania tylko przy błędzie transportu/serwera.
-  const transientAssignmentFailure=!!assignmentError&&(/GPS_ASSIGNMENT_NETWORK_ERROR|GPS_ASSIGNMENT_HTTP_5\\d\\d/.test(String(assignmentError.message||'')));
+  const transientAssignmentFailure=!!assignmentError&&(/GPS_ASSIGNMENT_NETWORK_ERROR|GPS_ASSIGNMENT_HTTP_5\d\d/.test(String(assignmentError.message||'')));
   if(!assignment?.vehicleId&&!transientAssignmentFailure){await patchDiagnostics({lastEnsureError:String(assignmentError?.message||'device-not-assigned').slice(0,240),lastEnsureErrorAt:Date.now()});if(!assignmentError)await stopVehicleLocationTracking();return {ok:false,reason:assignmentError?'assignment-error':'device-not-assigned'};}
   const effectiveVehicleId=assignment?.vehicleId||cfg.vehicleId;
   if(!effectiveVehicleId){await patchDiagnostics({lastEnsureError:'cached-vehicle-assignment-missing',lastEnsureErrorAt:Date.now()});return {ok:false,reason:'device-not-assigned'};}
