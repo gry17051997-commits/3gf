@@ -1,9 +1,10 @@
 # Repo cleanup status and deferred work
 
-Date: 2026-10-15  
+Date: 2026-10-16  
 Repository: `gry17051997-commits/3gf`  
 Baseline: `main` at `82ea492d949689ca4dbe4c7b27cdbcbcaff7acac`  
-Working branch: `chore/repo-cleanup-audit-2026-10-15`
+Working branch: `chore/repo-cleanup-audit-2026-10-15`  
+Cleanup PR: [#2](https://github.com/gry17051997-commits/3gf/pull/2)
 
 ## Safety rules
 
@@ -22,9 +23,11 @@ Working branch: `chore/repo-cleanup-audit-2026-10-15`
 - Removed `AUDIT_PACKAGE_TRIGGER.txt`; it was not referenced by a workflow.
 - Removed `GrafikPracy_Final/.github/workflows/web.yml`; it was a nested, manually triggered workflow fixture and was not referenced by the regression test suite.
 - Removed `GrafikPracy_Final/functions/package.json`; it was the only file in the functions directory, and current app config/README/tests describe central API + PostgreSQL, not Firebase Functions.
-- Reduced duplicate automatic CI runs: `android-apk.yml`, `diagnostic-apk.yml`, `full-audit.yml`, and `gemini-audit-package.yml` are now manual-trigger workflows. PR validation remains responsible for its automated tests/build; production APK and web deployment remain separate.
+- Reduced duplicate automatic CI runs: `android-apk.yml`, `diagnostic-apk.yml`, `full-audit.yml`, and `gemini-audit-package.yml` are manual-trigger workflows. PR validation remains responsible for automated tests/build; production APK and web deployment remain separate.
 - No production application source files were modified. GPS, map, API, runtime and build-fix scripts remain untouched.
 - `main` has not been modified.
+- On commit `1105d906901f3cdbb3148231a0e38fcf3d774cbd`, GitHub Actions reported **success** for PR Validation and CodeQL Advanced. PR Validation's job includes production-hardening tests, Expo public config validation, build-fix script syntax checks, web export verification, Android prebuild, release APK build, and APK ZIP integrity verification.
+- The checks above validate the cleanup branch's build and static/regression suite. They do not prove GPS/map behavior on a physical phone.
 
 ## Branch audit findings
 
@@ -34,23 +37,25 @@ Working branch: `chore/repo-cleanup-audit-2026-10-15`
 - Several branches contain unique GPS, API, backend or map changes and must not be deleted by name alone.
 - Branch deletion could not be performed with the available GitHub operations in this session. The report lists safe candidates for a later deletion pass.
 
-## Verification still required
+## Remaining verification and cleanup
 
-1. Run regression tests, Expo config validation, web export, Android prebuild and APK build via CI on this branch.
-2. Review the PR checks before merging.
-3. Confirm the audit-package workflow includes all new docs and no stale root paths.
-4. Recheck the branch list and tree SHA groups immediately before any deletion.
-5. Confirm the current GPS map provider requirement against `backup/2026-10-13-maptiler-working`; do not replace MapTiler with OSM/Leaflet without explicit verification.
+1. Recheck the branch list and tree SHA groups immediately before any deletion.
+2. Confirm the current GPS map provider requirement against `backup/2026-10-13-maptiler-working`; do not replace MapTiler with OSM/Leaflet without explicit verification.
+3. Review `package.json` `postinstall` and the three build-fix scripts after reading their exact effects and testing deterministic builds. CI currently installs with `--ignore-scripts`, then runs the fixes explicitly.
+4. Reconcile any remaining README/ROADMAP historical references where those files exist; the repository root currently has no `README.md` or `ROADMAP.md` at this branch.
+5. Keep runtime refactoring separate: map `GrafikPracy_Final/AppRuntime.js` imports and add regression coverage before changing the monolith.
+6. Keep GPS/map/runtime fixes separate from repository housekeeping and evaluate them against the MapTiler working backup.
+7. Further consolidate workflows only after confirming artifact, runtime diagnostic, backend, web deployment and CodeQL coverage remains intact.
 
 ## Deferred items
 
-- Delete redundant branch refs only after final recheck; this action is unavailable in the current tool set.
+- Delete redundant branch refs only after final recheck; branch deletion is unavailable through the current GitHub operations.
 - Refactor `GrafikPracy_Final/AppRuntime.js` only after mapping imports and adding regression coverage.
 - Further consolidate workflows only after CI proves artifact, runtime diagnostic, backend, web deployment and CodeQL coverage remains intact.
-- Revisit `package.json` `postinstall` and the three build-fix scripts after reading their exact effects and testing deterministic builds.
-- Reconcile any remaining README/ROADMAP historical references without changing product behavior.
-- GPS/map/runtime fixes are separate from this cleanup and must be evaluated against the MapTiler working backup.
+- Review `ALLOWED_ORIGINS` and schedule-write atomicity/concurrency separately as production correctness/security work.
+- Confirm live GPS, background tracking, route history and map provider behavior on a physical Android device.
+- Revisit `package.json` `postinstall` and build-fix scripts only after testing their deterministic effects.
 
 ## Safety status
 
-No branches were deleted, no APK was published, and no production code was changed. All edits are isolated on the cleanup branch pending CI and review.
+No branches were deleted, no APK was published, and no production code was changed. All edits are isolated on the cleanup branch pending review. PR #2 remains open and unmerged.
