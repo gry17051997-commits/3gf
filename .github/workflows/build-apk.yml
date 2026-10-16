@@ -47,10 +47,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify central API URL
+      - name: Verify required API and map configuration
         run: |
           test -n "$EXPO_PUBLIC_API_URL"
-          echo "Central API URL configured."
+          test -n "$EXPO_PUBLIC_MAPTILER_KEY" || { echo "Missing EXPO_PUBLIC_MAPTILER_KEY repository secret."; exit 1; }
+          echo "Central API and MapTiler configuration present."
 
       - name: Apply deterministic build fixes
         run: |
