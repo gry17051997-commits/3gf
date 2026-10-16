@@ -296,12 +296,16 @@ test('central document store rejects arbitrary collection names', () => {
   assert.match(server, /!STORE_COLLECTIONS\.has\(name\)/);
 });
 
-test('dashboard GPS mini map keeps a stable WebView and updates the OSM embed without remounting', async () => {
+test('dashboard GPS mini map uses MapTiler with stable WebView, diagnostics, and live point updates', async () => {
   const fs = await import('node:fs/promises');
   const dashboard = await fs.readFile(new URL('../NowDashboard.js', import.meta.url), 'utf8');
-  assert.match(dashboard, /const miniMapHtml=/);
+  assert.match(dashboard, /const MAPTILER_KEY = process\.env\.EXPO_PUBLIC_MAPTILER_KEY/);
+  assert.match(dashboard, /api\.maptiler\.com\/maps\/streets-v2/);
   assert.match(dashboard, /key="gps-mini-map"/);
   assert.match(dashboard, /window\.setGpsPoint=function\(lat,lon\)/);
+  assert.match(dashboard, /window\.setNativeMapSize=function\(width,height\)/);
+  assert.match(dashboard, /tiles\.on\('tileerror'/);
+  assert.match(dashboard, /onLayout=\{event=>/);
   assert.match(dashboard, /injectJavaScript\('window\.setGpsPoint\('/);
   assert.doesNotMatch(dashboard, /key=\{Math\.round\(Number\(location\.latitude\)\*10000\)/);
 });
