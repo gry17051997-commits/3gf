@@ -177,8 +177,14 @@ export async function ensureVehicleLocationTracking(){
   if(cfg.enabled!==true)return {ok:false,reason:'disabled'};
   const token=await getLocationDeviceToken();
   if(!token)return {ok:false,reason:'device-token-missing'};
-  const assignment=await getDeviceAssignment(token);
-  if(!assignment?.vehicleId){await stopVehicleLocationTracking();return {ok:false,reason:'device-not-assigned'};}
+  let assignment=null,assignmentError=null;
+  try{assignment=await getDeviceAssignment(token);}catch(error){assignmentError=error;}
+  // Chwilowy brak sieci/API nie może blokować wznowienia lokalnej usługi GPS.
+  // Użyj ostatniego poprawnego przypisania tylko przy błędzie transportu/serwera.
+  const transientAssignmentFailure=!!assignmentError&&(/GPS_ASSIGNMENT_NETWORK_ERROR|GPS_ASSIGNMENT_HTTP_5\\d\\d/.test(String(assignmentError.message||'')));
+  if(!assignment?.vehicleId&&!transientAssignmentFailure){await patchDiagnostics({lastEnsureError:String(assignmentError?.message||'device-not-assigned').slice(0,240),lastEnsureErrorAt:Date.now()});if(!assignmentError)await stopVehicleLocationTracking();return {ok:false,reason:assignmentError?'assignment-error':'device-not-assigned'};}
+  const effectiveVehicleId=assignment?.vehicleId||cfg.vehicleId;
+  if(!effectiveVehicleId){await patchDiagnostics({lastEnsureError:'cached-vehicle-assignment-missing',lastEnsureErrorAt:Date.now()});return {ok:false,reason:'device-not-assigned'};}
   const fg=await Location.getForegroundPermissionsAsync(),bg=await Location.getBackgroundPermissionsAsync();
   if(fg.status!=='granted'||bg.status!=='granted')return {ok:false,reason:'permission'};
   if(!(await Location.hasServicesEnabledAsync()))return {ok:false,reason:'location-services-disabled'};
@@ -193,10 +199,11 @@ export async function ensureVehicleLocationTracking(){
     restarted=true;
   }
   if(!running || Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION){
-    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,enabled:true,optionsVersion:LOCATION_OPTIONS_VERSION,vehicleId:normalizeVehicleId(assignment.vehicleId),registration:assignment.registration||cfg.registration||''}));
+    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,enabled:true,optionsVersion:LOCATION_OPTIONS_VERSION,vehicleId:normalizeVehicleId(effectiveVehicleId),registration:assignment?.registration||cfg.registration||''}));
   }
   try{await saveLocation(await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High}));}catch(e){console.log('LOCATION_REFRESH_ERROR',e);}
-  return {ok:true,restarted,vehicleId:assignment.vehicleId,registration:assignment.registration||''};
+  await patchDiagnostics({lastEnsureAt:Date.now(),lastEnsureError:null,lastEnsureErrorAt:null,lastEnsureRestarted:restarted,assignmentUsedCache:!assignment?.vehicleId});
+  return {ok:true,restarted,vehicleId:effectiveVehicleId,registration:assignment?.registration||cfg.registration||''};
 }
 
 export async function getVehicleLocationConfig(){
