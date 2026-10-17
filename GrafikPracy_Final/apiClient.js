@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_ORIGIN=String(process.env.EXPO_PUBLIC_API_URL||'').trim().replace(/\/+$/,'').replace(/\/api$/i,'');
+const API_ORIGIN=String(process.env.EXPO_PUBLIC_API_URL||'https://grafik-pracy-api-fra.onrender.com').trim().replace(/\/+$/,'').replace(/\/api$/i,'');
 // The central Express API mounts all routes under /api (including /api/auth/login).
 export const API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : '';
 export const API_TOKEN_KEY='grafik-pracy-api-token-v1';
