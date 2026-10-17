@@ -110,7 +110,7 @@ function summarizeTrip(rows, vehicleId, includePoints) {
  * A trip is split after a long telemetry gap; point IDs make its ID stable
  * across requests and do not require a new database migration.
  */
-export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs = TRIP_GAP_MS } = {}) {
+export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs = TRIP_GAP_MS, stationarySplitMs = 10 * 60 * 1000 } = {}) {
   const valid = (Array.isArray(rows) ? rows : [])
     .filter(row => row && row.id != null && asMillis(row.observed_at) != null
       && Number.isFinite(Number(row.latitude)) && Number.isFinite(Number(row.longitude)))
@@ -118,16 +118,66 @@ export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs 
     .sort((a, b) => asMillis(a.observed_at) - asMillis(b.observed_at) || Number(a.id) - Number(b.id));
 
   const groups = [];
-  let current = [];
+  let current = [], stationary = [], previous = null;
+  const flush = () => {
+    if (current.length) groups.push(current);
+    current = [];
+    stationary = [];
+  };
+  const stationaryDuration = () => stationary.length < 2 ? 0
+    : asMillis(stationary[stationary.length - 1].observed_at) - asMillis(stationary[0].observed_at);
+
   for (const row of valid) {
-    const previous = current[current.length - 1];
-    if (previous && asMillis(row.observed_at) - asMillis(previous.observed_at) > gapMs) {
-      if (current.length) groups.push(current);
-      current = [];
+    const previousTime = previous ? asMillis(previous.observed_at) : null;
+    const rowTime = asMillis(row.observed_at);
+    const gap = previousTime == null ? 0 : rowTime - previousTime;
+    if (previous && gap > gapMs) {
+      if (stationary.length && stationaryDuration() < stationarySplitMs) current.push(...stationary);
+      flush();
+      previous = row;
+      continue;
     }
-    // Avoid duplicate points from retries with the same database ID.
-    if (!current.length || String(current[current.length - 1].id) !== String(row.id)) current.push(row);
+
+    const movement = previous && gap > 0 && gap <= MAX_SEGMENT_GAP_MS
+      ? distanceMeters(previous, row) : 0;
+    const measuredSpeed = speedKmh(row.speed);
+    const isMoving = (measuredSpeed != null && measuredSpeed >= MIN_MOVING_SPEED_KMH)
+      || movement >= 12;
+
+    if (isMoving) {
+      if (stationary.length) {
+        if (stationaryDuration() >= stationarySplitMs) {
+          // A prolonged stop closes the previous trip. Do not connect the next
+          // departure to the parked vehicle's coordinates as if it were driving.
+          if (current.length) {
+            current.push(stationary[0]);
+            groups.push(current);
+            current = [];
+          }
+        } else {
+          current.push(...stationary);
+        }
+        stationary = [];
+      }
+      current.push(row);
+    } else if (current.length) {
+      stationary.push(row);
+      if (stationaryDuration() >= stationarySplitMs) {
+        current.push(stationary[0]);
+        groups.push(current);
+        current = [];
+        stationary = [];
+      }
+    }
+    previous = row;
   }
+
+  if (stationary.length && stationaryDuration() < stationarySplitMs) current.push(...stationary);
   if (current.length) groups.push(current);
-  return groups.map(group => summarizeTrip(group, vehicleId, includePoints)).reverse();
+
+  // Stable ordering and IDs make each trip selectable across refreshes.
+  return groups
+    .filter(group => group.length >= 2)
+    .map(group => summarizeTrip(group, vehicleId, includePoints))
+    .reverse();
 }
