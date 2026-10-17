@@ -93,3 +93,16 @@ CREATE TABLE IF NOT EXISTS documents (
   PRIMARY KEY(collection_name,doc_id)
 );
 CREATE INDEX IF NOT EXISTS documents_collection_idx ON documents(collection_name);
+CREATE INDEX IF NOT EXISTS sessions_expires_at_idx
+ON sessions(expires_at);
+
+CREATE INDEX IF NOT EXISTS assignments_active_user_idx
+ON assignments(user_id, updated_at DESC)
+WHERE active = TRUE;
+
+CREATE INDEX IF NOT EXISTS gps_history_observed_at_idx
+ON gps_history(observed_at DESC);
+
+CREATE INDEX IF NOT EXISTS phones_active_last_seen_idx
+ON phones(last_seen_at DESC)
+WHERE active = TRUE;
