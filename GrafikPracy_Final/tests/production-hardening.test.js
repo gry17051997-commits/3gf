@@ -396,6 +396,6 @@ test('GPS upload queue is durable and backend refuses to overwrite newer current
 test('GPS ensure does not force a high-accuracy fix on every assignment poll', async () => {
   const fs = await import('node:fs/promises');
   const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
-  assert.match(service, /now - lastTaskAt > 30 \\* 1000/);
+  assert.match(service, /now - lastTaskAt > 30 \* 1000/);
   assert.match(service, /shouldRequestFreshFix/);
 });
