@@ -13,6 +13,7 @@ const LOCATION_OPTIONS_VERSION=3;
 const STALE_THRESHOLD_MS = 2.5 * 60 * 1000; // 2.5 minuty
 const LOCATION_PENDING_QUEUE_KEY = 'grafik-pracy-location-pending-queue-v1';
 const MAX_PENDING_GPS_POINTS = 250;
+const MAX_GPS_QUEUE_FLUSH_PER_PASS = 20;
 
 export const normalizeVehicleId=value=>String(value||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40)||'SLUZBOWY';
 
@@ -43,10 +44,12 @@ const flushPendingGpsQueue=async(token,vehicleId)=>{
   const discarded=before-queue.length;
   if(discarded)await patchDiagnostics({pendingGpsQueueAssignmentDiscarded:(Number((await getLocationDiagnostics()).pendingGpsQueueAssignmentDiscarded)||0)+discarded});
   await writePendingGpsQueue(queue);
-  while(queue.length){
+  let sentThisPass=0;
+  while(queue.length && sentThisPass < MAX_GPS_QUEUE_FLUSH_PER_PASS){
     try{
       await apiPostGps(queue[0].payload,token);
       queue.shift();
+      sentThisPass++;
       await writePendingGpsQueue(queue);
       await patchDiagnostics({lastUploadAt:Date.now(),lastUploadError:null,lastUploadErrorAt:null});
     }catch(error){
@@ -55,7 +58,7 @@ const flushPendingGpsQueue=async(token,vehicleId)=>{
       return false;
     }
   }
-  return true;
+  return queue.length === 0;
 };
 export const setLocationDeviceToken=async token=>{const value=String(token||'').trim();if(value)await AsyncStorage.setItem(LOCATION_DEVICE_TOKEN_KEY,value);else await AsyncStorage.removeItem(LOCATION_DEVICE_TOKEN_KEY);return value;};
 
