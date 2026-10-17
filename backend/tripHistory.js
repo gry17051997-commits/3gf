@@ -79,6 +79,14 @@ function summarizeTrip(rows, vehicleId, includePoints) {
     previous = point;
   }
 
+  // Include a stop that is still in progress at the end of the available history.
+  if (stopStart != null && last) {
+    const stopBegin = asMillis(stopStart);
+    if (stopBegin != null && endMs - stopBegin >= 120000) {
+      stops.push({ startedAt: stopStart, endedAt: last.observedAt, durationSeconds: Math.round((endMs - stopBegin) / 1000), latitude: last.latitude, longitude: last.longitude });
+    }
+  }
+
   const elapsedSeconds = Math.max(0, Math.round((endMs - startMs) / 1000));
   const drivingSeconds = Math.min(elapsedSeconds, Math.round(drivingMs / 1000));
   const distanceKm = distance / 1000;
