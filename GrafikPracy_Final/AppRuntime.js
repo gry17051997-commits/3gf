@@ -1072,7 +1072,24 @@ export default function App() {
         const result = await startVehicleLocationTracking({vehicleId:vehicleRegistration,registration:vehicleRegistration});
         if (result.ok) {
           setLocationTracking(true);
-          Alert.alert('Lokalizacja aktywna','Służbowy telefon będzie wysyłał pozycję w tle.');
+          Alert.alert(
+            'GPS w tle: ważne ustawienie',
+            'Nadajnik został uruchomiony. Żeby Redmi/Xiaomi nie zatrzymywał GPS po zablokowaniu ekranu, ustaw dla Grafik Pracy: Bateria → Bez ograniczeń. W ustawieniach Autostart włącz też Grafik Pracy. Bez tych wyjątków HyperOS może uśpić aplikację mimo działającej usługi GPS.',
+            [
+              {text:'Później', style:'cancel'},
+              {
+                text:'Ustawienia baterii',
+                onPress: () => {
+                  if (Platform.OS === 'android' && typeof Linking.sendIntent === 'function') {
+                    Linking.sendIntent('android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS')
+                      .catch(() => Linking.openSettings());
+                  } else {
+                    Linking.openSettings();
+                  }
+                }
+              }
+            ]
+          );
         } else if (result.reason === 'background-permission') {
           Alert.alert('Lokalizacja','Android nie przyznał dostępu do lokalizacji w tle. Włącz „Zawsze zezwalaj” w ustawieniach aplikacji.');
         } else if (result.reason === 'foreground-permission') {
