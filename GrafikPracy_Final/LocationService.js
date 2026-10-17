@@ -51,7 +51,7 @@ const flushPendingGpsQueue=async(token,vehicleId)=>{
       queue.shift();
       sentThisPass++;
       await writePendingGpsQueue(queue);
-      await patchDiagnostics({lastUploadAt:Date.now(),lastUploadError:null,lastUploadErrorAt:null});
+      await patchDiagnostics({lastQueueUploadAt:Date.now()});
     }catch(error){
       const message=String(error?.message||error||'unknown');
       await patchDiagnostics({lastUploadError:message.slice(0,240),lastUploadErrorAt:Date.now(),pendingGpsQueueLength:queue.length});
@@ -136,7 +136,7 @@ async function saveLocationInternal(location){
     return;
   }
   try{
-    await patchDiagnostics({lastUploadAt:Date.now(),lastUploadError:null,lastUploadErrorAt:null});
+    await patchDiagnostics({lastUploadAt:Date.now(),lastLiveUploadAt:Date.now(),lastUploadError:null,lastUploadErrorAt:null});
     const assignedVehicleId=normalizeVehicleId(result.vehicleId||result.registration||cfg.vehicleId);
     const local={...payload,vehicleId:assignedVehicleId,registration:result.registration||cfg.registration||'',receivedAt:Date.now()};
     let previous=null;try{const raw=await AsyncStorage.getItem(LOCATION_CURRENT_KEY);previous=raw?JSON.parse(raw):null;}catch{}
@@ -261,7 +261,8 @@ export async function ensureVehicleLocationTracking() {
   // Check local fixes and server uploads independently; a fresh local fix
   // must not mask a broken upload path to the second device.
   const taskStale = lastTaskAt > 0 ? now - lastTaskAt > STALE_THRESHOLD_MS : now - trackingSince > STALE_THRESHOLD_MS;
-  const uploadStale = lastUploadAt > 0 ? now - lastUploadAt > STALE_THRESHOLD_MS : now - trackingSince > STALE_THRESHOLD_MS;
+  const lastLiveUploadAt = Number(diagnostics.lastLiveUploadAt || 0);
+  const uploadStale = lastLiveUploadAt > 0 ? now - lastLiveUploadAt > STALE_THRESHOLD_MS : now - trackingSince > STALE_THRESHOLD_MS;
   const isStale = taskStale || uploadStale;
   const recoveryCooldown = now - Number(diagnostics.lastRecoveryAt || 0) < 60 * 1000;
   const restartForStale = isStale && !recoveryCooldown;
