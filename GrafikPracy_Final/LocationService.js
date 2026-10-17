@@ -10,6 +10,10 @@ export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
 export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
 export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
 const LOCATION_OPTIONS_VERSION=3;
+const STALE_THRESHOLD_MS = 2.5 * 60 * 1000; // 2.5 minuty
+const LOCATION_PENDING_QUEUE_KEY = 'grafik-pracy-location-pending-queue-v1';
+const MAX_PENDING_GPS_POINTS = 250;
+const MAX_GPS_QUEUE_FLUSH_PER_PASS = 20;
 
 export const normalizeVehicleId=value=>String(value||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40)||'SLUZBOWY';
 
@@ -17,6 +21,45 @@ const getConfig=async()=>{try{const raw=await AsyncStorage.getItem(LOCATION_CONF
 export const getLocationDeviceToken=()=>AsyncStorage.getItem(LOCATION_DEVICE_TOKEN_KEY);
 export const getLocationDiagnostics=async()=>{try{const raw=await AsyncStorage.getItem(LOCATION_DIAGNOSTICS_KEY);return raw?JSON.parse(raw):{};}catch{return{};}};
 const patchDiagnostics=async patch=>{try{const old=await getLocationDiagnostics();await AsyncStorage.setItem(LOCATION_DIAGNOSTICS_KEY,JSON.stringify({...old,...patch}));}catch(error){console.log('LOCATION_DIAGNOSTICS_WRITE_ERROR',error?.message||error);}};
+
+const readPendingGpsQueue=async()=>{try{const raw=await AsyncStorage.getItem(LOCATION_PENDING_QUEUE_KEY);const parsed=raw?JSON.parse(raw):[];return Array.isArray(parsed)?parsed.filter(x=>x&&x.payload&&Number.isFinite(Number(x.payload.observedAt))):[];}catch{return[];}};
+const writePendingGpsQueue=async queue=>{await AsyncStorage.setItem(LOCATION_PENDING_QUEUE_KEY,JSON.stringify(queue));await patchDiagnostics({pendingGpsQueueLength:queue.length});};
+const enqueuePendingGps=async(payload,vehicleId)=>{
+  const normalizedVehicleId=normalizeVehicleId(vehicleId);
+  let queue=await readPendingGpsQueue();
+  const before=queue.length;
+  queue=queue.filter(item=>normalizeVehicleId(item.vehicleId)===normalizedVehicleId);
+  const discarded=before-queue.length;
+  if(queue.length>=MAX_PENDING_GPS_POINTS){queue.shift();await patchDiagnostics({pendingGpsQueueDropped:(Number((await getLocationDiagnostics()).pendingGpsQueueDropped)||0)+1});}
+  queue.push({payload,vehicleId:normalizedVehicleId,queuedAt:Date.now()});
+  await writePendingGpsQueue(queue);
+  if(discarded)await patchDiagnostics({pendingGpsQueueAssignmentDiscarded:(Number((await getLocationDiagnostics()).pendingGpsQueueAssignmentDiscarded)||0)+discarded});
+};
+const flushPendingGpsQueue=async(token,vehicleId)=>{
+  let queue=await readPendingGpsQueue();
+  if(!queue.length){await patchDiagnostics({pendingGpsQueueLength:0});return true;}
+  const normalizedVehicleId=normalizeVehicleId(vehicleId);
+  const before=queue.length;
+  queue=queue.filter(item=>normalizeVehicleId(item.vehicleId)===normalizedVehicleId);
+  const discarded=before-queue.length;
+  if(discarded)await patchDiagnostics({pendingGpsQueueAssignmentDiscarded:(Number((await getLocationDiagnostics()).pendingGpsQueueAssignmentDiscarded)||0)+discarded});
+  await writePendingGpsQueue(queue);
+  let sentThisPass=0;
+  while(queue.length && sentThisPass < MAX_GPS_QUEUE_FLUSH_PER_PASS){
+    try{
+      await apiPostGps(queue[0].payload,token);
+      queue.shift();
+      sentThisPass++;
+      await writePendingGpsQueue(queue);
+      await patchDiagnostics({lastQueueUploadAt:Date.now()});
+    }catch(error){
+      const message=String(error?.message||error||'unknown');
+      await patchDiagnostics({lastUploadError:message.slice(0,240),lastUploadErrorAt:Date.now(),pendingGpsQueueLength:queue.length});
+      return false;
+    }
+  }
+  return queue.length === 0;
+};
 export const setLocationDeviceToken=async token=>{const value=String(token||'').trim();if(value)await AsyncStorage.setItem(LOCATION_DEVICE_TOKEN_KEY,value);else await AsyncStorage.removeItem(LOCATION_DEVICE_TOKEN_KEY);return value;};
 
 const distanceMeters=(a,b)=>{if(!a||!b)return Infinity;const R=6371000,p1=a.latitude*Math.PI/180,p2=b.latitude*Math.PI/180,dp=(b.latitude-a.latitude)*Math.PI/180,dl=(b.longitude-a.longitude)*Math.PI/180,x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));};
@@ -72,27 +115,28 @@ async function saveLocationInternal(location){
     heading:Number.isFinite(c.heading)?Number(c.heading):null,
     observedAt:Number(location.timestamp||now)
   };
+
+  // Preserve FIFO order while offline; don't let new points leapfrog old ones.
+  const queueFlushed=await flushPendingGpsQueue(deviceToken,cfg.vehicleId);
+  if(!queueFlushed){
+    await enqueuePendingGps(payload,cfg.vehicleId);
+    return;
+  }
+
   let result=null,lastError=null;
-  // Krótkie ponowienia chronią przed utratą pojedynczego pomiaru przy chwilowym
-  // zaniku sieci. Błąd API nigdy sam w sobie nie wyłącza usługi GPS.
   for(let attempt=0;attempt<3;attempt++){
-    try{
-      result=await apiPostGps(payload,deviceToken);
-      lastError=null;
-      break;
-    }catch(error){
-      lastError=error;
-      if(attempt<2) await new Promise(resolve=>setTimeout(resolve,750*(attempt+1)));
-    }
+    try{result=await apiPostGps(payload,deviceToken);lastError=null;break;}
+    catch(error){lastError=error;if(attempt<2)await new Promise(resolve=>setTimeout(resolve,750*(attempt+1)));}
   }
   if(!result){
     const message=String(lastError?.message||lastError||'unknown');
-    await patchDiagnostics({lastUploadError:message.slice(0,240),lastUploadErrorAt:Date.now()});
+    await enqueuePendingGps(payload,cfg.vehicleId);
+    await patchDiagnostics({lastUploadError:message.slice(0,240),lastUploadErrorAt:Date.now(),pendingGpsQueueLength:(await readPendingGpsQueue()).length});
     console.log('LOCATION_API_WRITE_ERROR_AFTER_RETRIES',message);
     return;
   }
   try{
-    await patchDiagnostics({lastUploadAt:Date.now(),lastUploadError:null,lastUploadErrorAt:null});
+    await patchDiagnostics({lastUploadAt:Date.now(),lastLiveUploadAt:Date.now(),lastUploadError:null,lastUploadErrorAt:null});
     const assignedVehicleId=normalizeVehicleId(result.vehicleId||result.registration||cfg.vehicleId);
     const local={...payload,vehicleId:assignedVehicleId,registration:result.registration||cfg.registration||'',receivedAt:Date.now()};
     let previous=null;try{const raw=await AsyncStorage.getItem(LOCATION_CURRENT_KEY);previous=raw?JSON.parse(raw):null;}catch{}
@@ -169,34 +213,148 @@ export async function stopVehicleLocationTracking(){
   await AsyncStorage.removeItem(LOCATION_CURRENT_KEY);
 }
 
-export async function ensureVehicleLocationTracking(){
-  if(Platform.OS==='web'||!API_BASE_URL)return {ok:false,reason:'unsupported'};
-  // Funkcja może być wywołana przy wznowieniu aplikacji. Nie zatrzymuj ani nie
-  // uznawaj działającego nadajnika za wyłączony tylko dlatego, że ekran był zablokowany.
-  const cfg=await getConfig();
-  if(cfg.enabled!==true)return {ok:false,reason:'disabled'};
-  const token=await getLocationDeviceToken();
-  if(!token)return {ok:false,reason:'device-token-missing'};
-  const assignment=await getDeviceAssignment(token);
-  if(!assignment?.vehicleId){await stopVehicleLocationTracking();return {ok:false,reason:'device-not-assigned'};}
-  const fg=await Location.getForegroundPermissionsAsync(),bg=await Location.getBackgroundPermissionsAsync();
-  if(fg.status!=='granted'||bg.status!=='granted')return {ok:false,reason:'permission'};
-  if(!(await Location.hasServicesEnabledAsync()))return {ok:false,reason:'location-services-disabled'};
-  let running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
-  let restarted=false;
-  if(running && Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION){
-    await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-    running=false;
+export async function ensureVehicleLocationTracking() {
+  if (Platform.OS === 'web' || !API_BASE_URL) return { ok: false, reason: 'unsupported' };
+
+  const cfg = await getConfig();
+  if (cfg.enabled !== true) return { ok: false, reason: 'disabled' };
+
+  const token = await getLocationDeviceToken();
+  if (!token) return { ok: false, reason: 'device-token-missing' };
+
+  let assignment;
+  try {
+    assignment = await getDeviceAssignment(token);
+  } catch (e) {
+    // Chwilowy błąd sieci nie powinien wyłączać GPS ani kasować przypisania.
+    assignment = { vehicleId: cfg.vehicleId, registration: cfg.registration };
+    await patchDiagnostics({
+      lastAssignmentFallbackAt: Date.now(),
+      lastAssignmentFallbackError: String(e?.message || e).slice(0, 240),
+    });
   }
-  if(!running){
-    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
-    restarted=true;
+
+  if (!assignment?.vehicleId) {
+    await patchDiagnostics({ lastEnsureError: 'device-not-assigned', lastEnsureErrorAt: Date.now() });
+    await stopVehicleLocationTracking();
+    return { ok: false, reason: 'device-not-assigned' };
   }
-  if(!running || Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION){
-    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,enabled:true,optionsVersion:LOCATION_OPTIONS_VERSION,vehicleId:normalizeVehicleId(assignment.vehicleId),registration:assignment.registration||cfg.registration||''}));
+
+  const fg = await Location.getForegroundPermissionsAsync();
+  const bg = await Location.getBackgroundPermissionsAsync();
+  if (fg.status !== 'granted' || bg.status !== 'granted') {
+    return { ok: false, reason: 'permission' };
   }
-  try{await saveLocation(await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High}));}catch(e){console.log('LOCATION_REFRESH_ERROR',e);}
-  return {ok:true,restarted,vehicleId:assignment.vehicleId,registration:assignment.registration||''};
+  if (!(await Location.hasServicesEnabledAsync())) {
+    return { ok: false, reason: 'location-services-disabled' };
+  }
+
+  const diagnostics = await getLocationDiagnostics();
+  const now = Date.now();
+  if (!Number(diagnostics.lastTrackingStartedAt || 0)) {
+    diagnostics.lastTrackingStartedAt = now;
+    await patchDiagnostics({ lastTrackingStartedAt: now });
+  }
+  const trackingSince = Number(diagnostics.lastTrackingStartedAt || now);
+  const lastTaskAt = Number(diagnostics.lastTaskAt || 0);
+  const lastUploadAt = Number(diagnostics.lastUploadAt || 0);
+  // Check local fixes and server uploads independently; a fresh local fix
+  // must not mask a broken upload path to the second device.
+  const taskStale = lastTaskAt > 0 ? now - lastTaskAt > STALE_THRESHOLD_MS : now - trackingSince > STALE_THRESHOLD_MS;
+  const lastLiveUploadAt = Number(diagnostics.lastLiveUploadAt || 0);
+  const uploadStale = lastLiveUploadAt > 0 ? now - lastLiveUploadAt > STALE_THRESHOLD_MS : now - trackingSince > STALE_THRESHOLD_MS;
+  const isStale = taskStale || uploadStale;
+  const recoveryCooldown = now - Number(diagnostics.lastRecoveryAt || 0) < 60 * 1000;
+  const restartForStale = isStale && !recoveryCooldown;
+
+  let running = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+  let restarted = false;
+  const optionsChanged = Number(cfg.optionsVersion || 0) !== LOCATION_OPTIONS_VERSION;
+
+  if (running && (optionsChanged || restartForStale)) {
+    try {
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    } catch (e) {
+      await patchDiagnostics({
+        lastRestartStopError: String(e?.message || e).slice(0, 200),
+        lastRestartStopErrorAt: Date.now(),
+      });
+    }
+    running = false;
+  }
+
+  if (!running) {
+    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, LOCATION_OPTIONS);
+    restarted = true;
+    await patchDiagnostics({ lastRecoveryAt: Date.now(), lastTrackingStartedAt: Date.now() });
+  }
+
+  // Zapisz bieżące przypisanie i wersję opcji niezależnie od tego, czy task już działał.
+  await AsyncStorage.setItem(
+    LOCATION_CONFIG_KEY,
+    JSON.stringify({
+      ...cfg,
+      enabled: true,
+      optionsVersion: LOCATION_OPTIONS_VERSION,
+      vehicleId: normalizeVehicleId(assignment.vehicleId),
+      registration: assignment.registration || cfg.registration || '',
+    })
+  );
+
+  // Don't force a high-accuracy GPS fix on every 5-second assignment poll.
+  // Request one after a restart or if native updates have not delivered a fix for 30s.
+  const shouldRequestFreshFix = restarted || isStale || !lastTaskAt || now - lastTaskAt > 30 * 1000;
+  if (shouldRequestFreshFix) {
+    try {
+      await saveLocation(
+        await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
+      );
+    } catch (e) {
+      console.log('LOCATION_REFRESH_ERROR', e);
+    }
+  }
+
+  await patchDiagnostics({
+    lastEnsureAt: Date.now(),
+    lastEnsureError: null,
+    lastEnsureErrorAt: null,
+    lastEnsureRestarted: restarted,
+    lastEnsureRestartReason: isStale ? 'stale' : optionsChanged ? 'options-outdated' : restarted ? 'task-missing' : 'healthy',
+  });
+
+  return {
+    ok: true,
+    restarted,
+    wasStale: isStale,
+    vehicleId: assignment.vehicleId,
+    registration: assignment.registration || '',
+  };
+}
+
+/**
+ * Twarde wymuszenie restartu trackingu (używane przy powrocie do aplikacji).
+ */
+export async function forceRestartVehicleLocationTracking() {
+  if (Platform.OS === 'web') return { ok: false, reason: 'web' };
+
+  const cfg = await getConfig();
+  if (cfg.enabled !== true) return { ok: false, reason: 'disabled' };
+
+  try {
+    if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME)) {
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    }
+  } catch (e) {
+    await patchDiagnostics({
+      lastForceRestartStopError: String(e?.message || e).slice(0, 200),
+      lastForceRestartStopErrorAt: Date.now(),
+    });
+  }
+
+  // Krótka przerwa pomaga urządzeniom, które opóźniają restart usług lokalizacji.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  return ensureVehicleLocationTracking();
 }
 
 export async function getVehicleLocationConfig(){

@@ -225,6 +225,25 @@ test('GPS dashboards use the central API instead of Firestore', () => {
   assert.doesNotMatch(now,/firebase\/firestore/);
 });
 
+test('GPS tracking recovers when its last activity is stale and supports hard restart', async () => {
+  const fs = await import('node:fs/promises');
+  const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  assert.match(service, /const STALE_THRESHOLD_MS = 2\.5 \* 60 \* 1000/);
+  assert.match(service, /assignment = \{ vehicleId: cfg\.vehicleId, registration: cfg\.registration \}/);
+  assert.match(service, /const taskStale = lastTaskAt > 0/);
+  assert.match(service, /const uploadStale = lastLiveUploadAt > 0/);
+  assert.match(service, /const restartForStale = isStale && !recoveryCooldown/);
+  assert.match(service, /LOCATION_PENDING_QUEUE_KEY/);
+  assert.match(service, /const flushPendingGpsQueue=async/);
+  assert.match(service, /await enqueuePendingGps\(payload,cfg\.vehicleId\)/);
+  assert.match(service, /wasStale: isStale/);
+  assert.match(service, /export async function forceRestartVehicleLocationTracking\(\)/);
+  assert.match(app, /forceRestartVehicleLocationTracking/);
+  assert.match(app, /if\(state==='active'\)refresh\(true\)/);
+  assert.match(app, /setInterval\(\(\)=>refresh\(false\),5000\)/);
+});
+
 test('GPS tracking requires a central device assignment and sends positions through the central API', async () => {
   const fs = await import('node:fs/promises');
   const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
@@ -347,4 +366,38 @@ test('central API client prefixes every endpoint with the backend /api mount', (
   assert.ok(client.includes("API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : ''"));
   assert.ok(client.includes("api('/auth/login'"));
   assert.ok(server.includes("app.post('/api/auth/login'"));
+});
+
+
+test('MapTiler key is supplied to Android APK builds and mini-map reports tile failures', async () => {
+  const fs = await import('node:fs/promises');
+  const workflow = await fs.readFile(new URL('../../.github/workflows/build-apk.yml', import.meta.url), 'utf8');
+  const dashboard = await fs.readFile(new URL('../NowDashboard.js', import.meta.url), 'utf8');
+  assert.match(workflow, /EXPO_PUBLIC_MAPTILER_KEY:\s*\$\{\{\s*secrets\.EXPO_PUBLIC_MAPTILER_KEY\s*\}\}/);
+  assert.match(workflow, /fix\/native-maplibre-mini-map/);
+  assert.match(dashboard, /process\.env\.EXPO_PUBLIC_MAPTILER_KEY/);
+  assert.match(dashboard, /tileerror/);
+  assert.match(dashboard, /tile\.openstreetmap\.org/);
+  assert.match(dashboard, /OpenStreetMap contributors/);
+  assert.match(dashboard, /setNativeMapSize/);
+});
+
+
+test('GPS upload queue is durable and backend refuses to overwrite newer current positions', async () => {
+  const fs = await import('node:fs/promises');
+  const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  assert.match(service, /LOCATION_PENDING_QUEUE_KEY/);
+  assert.match(service, /MAX_PENDING_GPS_POINTS = 250/);
+  assert.match(service, /MAX_GPS_QUEUE_FLUSH_PER_PASS = 20/);
+  assert.match(service, /AsyncStorage\.setItem\(LOCATION_PENDING_QUEUE_KEY/);
+  assert.match(backend, /WHERE gps_current\.observed_at <= EXCLUDED\.observed_at/);
+});
+
+
+test('GPS ensure does not force a high-accuracy fix on every assignment poll', async () => {
+  const fs = await import('node:fs/promises');
+  const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  assert.match(service, /now - lastTaskAt > 30 \* 1000/);
+  assert.match(service, /shouldRequestFreshFix/);
 });
