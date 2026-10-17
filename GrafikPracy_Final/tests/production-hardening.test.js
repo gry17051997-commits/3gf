@@ -232,7 +232,7 @@ test('GPS tracking recovers when its last activity is stale and supports hard re
   assert.match(service, /const STALE_THRESHOLD_MS = 2\.5 \* 60 \* 1000/);
   assert.match(service, /assignment = \{ vehicleId: cfg\.vehicleId, registration: cfg\.registration \}/);
   assert.match(service, /const taskStale = lastTaskAt > 0/);
-  assert.match(service, /const uploadStale = lastUploadAt > 0/);
+  assert.match(service, /const uploadStale = lastLiveUploadAt > 0/);
   assert.match(service, /const restartForStale = isStale && !recoveryCooldown/);
   assert.match(service, /LOCATION_PENDING_QUEUE_KEY/);
   assert.match(service, /const flushPendingGpsQueue=async/);
