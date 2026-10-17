@@ -225,6 +225,19 @@ test('GPS dashboards use the central API instead of Firestore', () => {
   assert.doesNotMatch(now,/firebase\/firestore/);
 });
 
+test('GPS tracking recovers when its last activity is stale and supports hard restart', async () => {
+  const fs = await import('node:fs/promises');
+  const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  assert.match(service, /const STALE_THRESHOLD_MS = 2\.5 \* 60 \* 1000/);
+  assert.match(service, /const lastActivity = Math\.max\(lastTaskAt, lastUploadAt\)/);
+  assert.match(service, /wasStale: isStale/);
+  assert.match(service, /export async function forceRestartVehicleLocationTracking\(\)/);
+  assert.match(app, /forceRestartVehicleLocationTracking/);
+  assert.match(app, /if\(state==='active'\)refresh\(true\)/);
+  assert.match(app, /setInterval\(\(\)=>refresh\(false\),5000\)/);
+});
+
 test('GPS tracking requires a central device assignment and sends positions through the central API', async () => {
   const fs = await import('node:fs/promises');
   const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
