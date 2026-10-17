@@ -18,14 +18,37 @@ export default function TripHistoryPanel({vehicleId}) {
   const [selected, setSelected] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
     let active = true;
+    let inFlight = false;
+    const loadTrips = async (manual = false) => {
+      if (!vehicleId || inFlight) return;
+      inFlight = true;
+      if (manual && active) setRefreshing(true);
+      try {
+        const rows = await apiGetGpsTrips(vehicleId);
+        if (active) { setTrips(rows || []); setError(''); }
+      } catch (e) {
+        if (active) setError(String(e?.message || 'Nie udało się pobrać historii tras'));
+      } finally {
+        inFlight = false;
+        if (manual && active) setRefreshing(false);
+      }
+    };
     if (!vehicleId) { setTrips([]); return () => { active = false; }; }
-    apiGetGpsTrips(vehicleId).then(rows => { if (active) { setTrips(rows || []); setError(''); } })
-      .catch(e => { if (active) setError(String(e?.message || 'Nie udało się pobrać historii tras')); });
-    return () => { active = false; };
+    loadTrips();
+    const timer = setInterval(() => loadTrips(), 30000);
+    return () => { active = false; clearInterval(timer); };
   }, [vehicleId]);
+  const refreshTrips = async () => {
+    if (refreshing || !vehicleId) return;
+    setRefreshing(true);
+    try { const rows = await apiGetGpsTrips(vehicleId); setTrips(rows || []); setError(''); }
+    catch (e) { setError(String(e?.message || 'Nie udało się odświeżyć historii tras')); }
+    finally { setRefreshing(false); }
+  };
   const openTrip = async trip => {
     try { setLoading(true); setError(''); setSelected(await apiGetGpsTrip(vehicleId, trip.id)); }
     catch (e) { setError(String(e?.message || 'Nie udało się otworzyć trasy')); }
@@ -39,7 +62,10 @@ export default function TripHistoryPanel({vehicleId}) {
   const buttonText = {color:'#fff',fontWeight:'800'};
   return <View style={card}>
     <Text style={title}>🛣️ HISTORIA PRZEJAZDÓW · 7 DNI</Text>
-    <Text style={sub}>Każdy przejazd ma osobną mapę i statystyki. Kliknij kartę, aby otworzyć szczegóły.</Text>
+    <Text style={sub}>Każdy przejazd ma osobną mapę i statystyki. Historia odświeża się automatycznie co 30 s.</Text>
+    <TouchableOpacity style={button} onPress={refreshTrips} disabled={refreshing}>
+      <Text style={buttonText}>{refreshing ? 'ODŚWIEŻANIE…' : 'ODŚWIEŻ HISTORIĘ'}</Text>
+    </TouchableOpacity>
     {error ? <Text style={[sub,{color:'#f0b35a'}]}>{error}</Text> : null}
     {trips.length ? trips.map(trip => <TouchableOpacity key={trip.id} style={row} disabled={loading} onPress={() => openTrip(trip)}>
       <Text style={{color:'#fff',fontWeight:'800'}}>{new Date(trip.startedAt).toLocaleDateString('pl-PL')} · {new Date(trip.startedAt).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})} do {new Date(trip.endedAt).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}</Text>
