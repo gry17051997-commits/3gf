@@ -388,6 +388,7 @@ test('GPS upload queue is durable and backend refuses to overwrite newer current
   const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
   assert.match(service, /LOCATION_PENDING_QUEUE_KEY/);
   assert.match(service, /MAX_PENDING_GPS_POINTS = 250/);
+  assert.match(service, /MAX_GPS_QUEUE_FLUSH_PER_PASS = 20/);
   assert.match(service, /AsyncStorage\.setItem\(LOCATION_PENDING_QUEUE_KEY/);
   assert.match(backend, /WHERE gps_current\.observed_at <= EXCLUDED\.observed_at/);
 });
