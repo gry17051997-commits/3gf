@@ -10,6 +10,7 @@ export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
 export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
 export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
 const LOCATION_OPTIONS_VERSION=3;
+const STALE_THRESHOLD_MS = 2.5 * 60 * 1000; // 2.5 minuty
 
 export const normalizeVehicleId=value=>String(value||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40)||'SLUZBOWY';
 
@@ -169,49 +170,133 @@ export async function stopVehicleLocationTracking(){
   await AsyncStorage.removeItem(LOCATION_CURRENT_KEY);
 }
 
-export async function ensureVehicleLocationTracking(){
-  if(Platform.OS==='web'||!API_BASE_URL)return {ok:false,reason:'unsupported'};
-  // Funkcja może być wywołana przy wznowieniu aplikacji. Nie zatrzymuj ani nie
-  // uznawaj działającego nadajnika za wyłączony tylko dlatego, że ekran był zablokowany.
-  const cfg=await getConfig();
-  if(cfg.enabled!==true)return {ok:false,reason:'disabled'};
-  const token=await getLocationDeviceToken();
-  if(!token)return {ok:false,reason:'device-token-missing'};
-  let assignment=null,assignmentError=null;
-  try{assignment=await getDeviceAssignment(token);}catch(error){assignmentError=error;}
-  // Chwilowy brak sieci/API nie może blokować wznowienia lokalnej usługi GPS.
-  // Użyj ostatniego poprawnego przypisania tylko przy błędzie transportu/serwera.
-  const transientAssignmentFailure=!!assignmentError&&(/GPS_ASSIGNMENT_NETWORK_ERROR|GPS_ASSIGNMENT_HTTP_5\d\d/.test(String(assignmentError.message||'')));
-  if(!assignment?.vehicleId&&!transientAssignmentFailure){await patchDiagnostics({lastEnsureError:String(assignmentError?.message||'device-not-assigned').slice(0,240),lastEnsureErrorAt:Date.now()});if(!assignmentError)await stopVehicleLocationTracking();return {ok:false,reason:assignmentError?'assignment-error':'device-not-assigned'};}
-  const effectiveVehicleId=assignment?.vehicleId||cfg.vehicleId;
-  if(!effectiveVehicleId){await patchDiagnostics({lastEnsureError:'cached-vehicle-assignment-missing',lastEnsureErrorAt:Date.now()});return {ok:false,reason:'device-not-assigned'};}
-  const fg=await Location.getForegroundPermissionsAsync(),bg=await Location.getBackgroundPermissionsAsync();
-  if(fg.status!=='granted'||bg.status!=='granted')return {ok:false,reason:'permission'};
-  if(!(await Location.hasServicesEnabledAsync()))return {ok:false,reason:'location-services-disabled'};
-  let running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
-  let restarted=false;
-  const diagnostics=await getLocationDiagnostics();
-  const lastTaskAt=Number(diagnostics.lastTaskAt||0);
-  const taskStale=running&&(!lastTaskAt||Date.now()-lastTaskAt>60000);
-  const optionsOutdated=running&&Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION;
-  // Android może zgłaszać, że task nadal działa, mimo że po zablokowaniu ekranu
-  // przestał dostarczać pomiary. Wtedy samo hasStartedLocationUpdatesAsync nie wystarcza.
-  if(running&&(optionsOutdated||taskStale)){
-    try{await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);}catch(error){
-      await patchDiagnostics({lastRestartStopError:String(error?.message||error).slice(0,200),lastRestartStopErrorAt:Date.now()});
+export async function ensureVehicleLocationTracking() {
+  if (Platform.OS === 'web' || !API_BASE_URL) return { ok: false, reason: 'unsupported' };
+
+  const cfg = await getConfig();
+  if (cfg.enabled !== true) return { ok: false, reason: 'disabled' };
+
+  const token = await getLocationDeviceToken();
+  if (!token) return { ok: false, reason: 'device-token-missing' };
+
+  let assignment;
+  try {
+    assignment = await getDeviceAssignment(token);
+  } catch (e) {
+    // Chwilowy błąd sieci nie powinien wyłączać GPS ani kasować przypisania.
+    assignment = { vehicleId: cfg.vehicleId, registration: cfg.registration };
+    await patchDiagnostics({
+      lastAssignmentFallbackAt: Date.now(),
+      lastAssignmentFallbackError: String(e?.message || e).slice(0, 240),
+    });
+  }
+
+  if (!assignment?.vehicleId) {
+    await patchDiagnostics({ lastEnsureError: 'device-not-assigned', lastEnsureErrorAt: Date.now() });
+    await stopVehicleLocationTracking();
+    return { ok: false, reason: 'device-not-assigned' };
+  }
+
+  const fg = await Location.getForegroundPermissionsAsync();
+  const bg = await Location.getBackgroundPermissionsAsync();
+  if (fg.status !== 'granted' || bg.status !== 'granted') {
+    return { ok: false, reason: 'permission' };
+  }
+  if (!(await Location.hasServicesEnabledAsync())) {
+    return { ok: false, reason: 'location-services-disabled' };
+  }
+
+  const diagnostics = await getLocationDiagnostics();
+  const lastTaskAt = Number(diagnostics.lastTaskAt || 0);
+  const lastUploadAt = Number(diagnostics.lastUploadAt || 0);
+  const lastActivity = Math.max(lastTaskAt, lastUploadAt);
+  const isStale = lastActivity > 0 && (Date.now() - lastActivity > STALE_THRESHOLD_MS);
+
+  let running = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+  let restarted = false;
+
+  // Wymuś pełny restart, gdy zmieniły się opcje lub tracking nie raportuje aktywności.
+  const optionsChanged = Number(cfg.optionsVersion || 0) !== LOCATION_OPTIONS_VERSION;
+
+  if (running && (optionsChanged || isStale)) {
+    try {
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    } catch (e) {
+      await patchDiagnostics({
+        lastRestartStopError: String(e?.message || e).slice(0, 200),
+        lastRestartStopErrorAt: Date.now(),
+      });
     }
-    running=false;
+    running = false;
   }
-  if(!running){
-    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
-    restarted=true;
+
+  if (!running) {
+    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, LOCATION_OPTIONS);
+    restarted = true;
   }
-  if(!running || Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION){
-    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,enabled:true,optionsVersion:LOCATION_OPTIONS_VERSION,vehicleId:normalizeVehicleId(effectiveVehicleId),registration:assignment?.registration||cfg.registration||''}));
+
+  // Zapisz bieżące przypisanie i wersję opcji niezależnie od tego, czy task już działał.
+  await AsyncStorage.setItem(
+    LOCATION_CONFIG_KEY,
+    JSON.stringify({
+      ...cfg,
+      enabled: true,
+      optionsVersion: LOCATION_OPTIONS_VERSION,
+      vehicleId: normalizeVehicleId(assignment.vehicleId),
+      registration: assignment.registration || cfg.registration || '',
+    })
+  );
+
+  // Wykonaj natychmiastowy pomiar po wznowieniu trackingu.
+  try {
+    await saveLocation(
+      await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
+    );
+  } catch (e) {
+    console.log('LOCATION_REFRESH_ERROR', e);
   }
-  try{await saveLocation(await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High}));}catch(e){console.log('LOCATION_REFRESH_ERROR',e);}
-  await patchDiagnostics({lastEnsureAt:Date.now(),lastEnsureError:null,lastEnsureErrorAt:null,lastEnsureRestarted:restarted,lastEnsureRestartReason:taskStale?'task-stale':optionsOutdated?'options-outdated':!running?'task-missing':'healthy',assignmentUsedCache:!assignment?.vehicleId});
-  return {ok:true,restarted,vehicleId:effectiveVehicleId,registration:assignment?.registration||cfg.registration||''};
+
+  await patchDiagnostics({
+    lastEnsureAt: Date.now(),
+    lastEnsureError: null,
+    lastEnsureErrorAt: null,
+    lastEnsureRestarted: restarted,
+    lastEnsureRestartReason: isStale ? 'stale' : optionsChanged ? 'options-outdated' : restarted ? 'task-missing' : 'healthy',
+  });
+
+  return {
+    ok: true,
+    restarted,
+    wasStale: isStale,
+    vehicleId: assignment.vehicleId,
+    registration: assignment.registration || '',
+  };
+}
+
+/**
+ * Twarde wymuszenie restartu trackingu (używane przy powrocie do aplikacji).
+ */
+export async function forceRestartVehicleLocationTracking() {
+  if (Platform.OS === 'web') return { ok: false, reason: 'web' };
+
+  const cfg = await getConfig();
+  if (cfg.enabled !== true) return { ok: false, reason: 'disabled' };
+
+  try {
+    if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME)) {
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    }
+  } catch (e) {
+    await patchDiagnostics({
+      lastForceRestartStopError: String(e?.message || e).slice(0, 200),
+      lastForceRestartStopErrorAt: Date.now(),
+    });
+  }
+
+  // Krótka przerwa pomaga urządzeniom, które opóźniają restart usług lokalizacji.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  return ensureVehicleLocationTracking();
 }
 
 export async function getVehicleLocationConfig(){
