@@ -377,7 +377,8 @@ test('MapTiler key is supplied to Android APK builds and mini-map reports tile f
   assert.match(workflow, /fix\/native-maplibre-mini-map/);
   assert.match(dashboard, /process\.env\.EXPO_PUBLIC_MAPTILER_KEY/);
   assert.match(dashboard, /tileerror/);
-  assert.match(dashboard, /Brak EXPO_PUBLIC_MAPTILER_KEY w konfiguracji APK/);
+  assert.match(dashboard, /tile\.openstreetmap\.org/);
+  assert.match(dashboard, /OpenStreetMap contributors/);
   assert.match(dashboard, /setNativeMapSize/);
 });
 
