@@ -230,6 +230,7 @@ test('GPS tracking recovers when its last activity is stale and supports hard re
   const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
   const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
   assert.match(service, /const STALE_THRESHOLD_MS = 2\.5 \* 60 \* 1000/);
+  assert.match(service, /assignment = \{ vehicleId: cfg\.vehicleId, registration: cfg\.registration \}/);
   assert.match(service, /const lastActivity = Math\.max\(lastTaskAt, lastUploadAt\)/);
   assert.match(service, /wasStale: isStale/);
   assert.match(service, /export async function forceRestartVehicleLocationTracking\(\)/);
