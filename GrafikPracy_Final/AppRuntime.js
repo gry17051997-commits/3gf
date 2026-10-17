@@ -1074,7 +1074,7 @@ export default function App() {
           setLocationTracking(true);
           Alert.alert(
             'GPS w tle: ważne ustawienie',
-            'Nadajnik został uruchomiony. Żeby Redmi/Xiaomi nie zatrzymywał GPS po zablokowaniu ekranu, ustaw dla Grafik Pracy: Bateria → Bez ograniczeń. W ustawieniach Autostart włącz też Grafik Pracy. Bez tych wyjątków HyperOS może uśpić aplikację mimo działającej usługi GPS.',
+            'Nadajnik został uruchomiony. Żeby GPS działał po zablokowaniu ekranu, sprawdź ustawienia telefonu:\n\n• Bateria dla Grafik Pracy: Bez ograniczeń / Nie optymalizuj.\n• Autostart: włącz Grafik Pracy.\n• Zezwól na działanie w tle i wysokie zużycie energii w tle, jeśli telefon ma te opcje.\n• Nie ograniczaj aktywności aplikacji po zablokowaniu ekranu.\n• Pozostaw widoczne powiadomienie „GPS aktywny”.\n\nNazwy opcji różnią się między Redmi/Xiaomi (HyperOS) i vivo (Funtouch OS). Android i producent mogą mimo to zatrzymać usługę, jeśli system wymusi zamknięcie aplikacji. Po zmianach sprawdź GPS z zablokowanym ekranem przez 10–15 minut.',
             [
               {text:'Później', style:'cancel'},
               {
