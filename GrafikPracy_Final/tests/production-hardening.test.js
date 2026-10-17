@@ -232,7 +232,7 @@ test('GPS tracking requires a central device assignment and sends positions thro
   assert.ok(service.includes("fetch(API_BASE_URL+'/gps/device'"));
 assert.ok(service.includes("if(!assignment?.vehicleId)return null;"));
   assert.ok(service.includes("if(!assignment?.vehicleId)return {ok:false,reason:'device-not-assigned'};"));
-  assert.match(service, /apiPostGps\(payload,deviceToken\)/);
+  assert.match(service, /apiPostGps\(item\.payload,item\.token\)/);
   assert.match(service, /normalizeVehicleId\(assignment\.vehicleId\)/);
 });
 
@@ -348,3 +348,38 @@ test('central API client prefixes every endpoint with the backend /api mount', (
   assert.ok(client.includes("api('/auth/login'"));
   assert.ok(server.includes("app.post('/api/auth/login'"));
 });
+
+test('GPS current-position UPSERT rejects samples older than the stored position', () => {
+  const server = fs.readFileSync(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  const start = server.indexOf("app.post('/api/gps'");
+  const end = server.indexOf("app.get('/api/gps/mine'", start);
+  assert.ok(start >= 0 && end > start);
+  const route = server.slice(start, end);
+  assert.match(route, /WHERE gps_current\.observed_at IS NULL OR gps_current\.observed_at <= EXCLUDED\.observed_at/);
+  assert.match(route, /INSERT INTO gps_history/);
+});
+
+test('GPS upload failures use a bounded persistent FIFO queue', () => {
+  const service = fs.readFileSync(new URL('../LocationService.js', import.meta.url), 'utf8');
+  assert.match(service, /LOCATION_PENDING_QUEUE_KEY/);
+  assert.match(service, /MAX_PENDING_GPS_SAMPLES=500/);
+  assert.match(service, /AsyncStorage\.setItem\(LOCATION_PENDING_QUEUE_KEY/);
+  assert.match(service, /while\(pending\.length\)/);
+  assert.match(service, /pending\.shift\(\)/);
+  assert.match(service, /pendingGpsCount/);
+  assert.match(service, /pendingGpsOverflowCount/);
+});
+
+test('mini map diagnostics and MapTiler key are wired into the APK build', () => {
+  const dashboard = fs.readFileSync(new URL('../NowDashboard.js', import.meta.url), 'utf8');
+  const workflow = fs.readFileSync(new URL('../../.github/workflows/build-apk.yml', import.meta.url), 'utf8');
+  assert.match(dashboard, /const \[miniMapDiagnostic,setMiniMapDiagnostic\]/);
+  assert.match(dashboard, /api\.maptiler\.com\/maps\/streets-v2/);
+  assert.match(dashboard, /\.leaflet-tile-pane\{z-index:200\}/);
+  assert.match(dashboard, /\.leaflet-marker-pane\{z-index:600\}/);
+  assert.match(dashboard, /\.leaflet-control-container\{position:absolute;inset:0;pointer-events:none\}/);
+  assert.match(dashboard, /tiles\.on\('tileerror'/);
+  assert.match(workflow, /EXPO_PUBLIC_MAPTILER_KEY:\s*\$\{\{\s*secrets\.EXPO_PUBLIC_MAPTILER_KEY\s*\}\}/);
+  assert.match(workflow, /test -n "\$EXPO_PUBLIC_MAPTILER_KEY"/);
+});
+

@@ -1,17 +1,66 @@
 import express from 'express';
 import cors from 'cors';
+import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
 import crypto from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import pg from 'pg';
 
 const {Pool}=pg;
 const app=express();
-app.use(cors());
+const allowedOrigins=(process.env.ALLOWED_ORIGINS||'http://localhost:8081,http://localhost:19006,https://twoja-domena.pl').split(',').map(origin=>origin.trim()).filter(Boolean);
+
+app.disable('x-powered-by');
+app.use((req,res,next)=>{
+  res.setHeader('X-Content-Type-Options','nosniff');
+  res.setHeader('X-Frame-Options','DENY');
+  res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection','0');
+  next();
+});
+
+app.use(cors({
+  origin:(origin,callback)=>{
+    if(!origin)return callback(null,true);
+    if(allowedOrigins.includes(origin))return callback(null,true);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials:true
+}));
 app.use(express.json({limit:'2mb'}));
+
+const generalLimiter=rateLimit({
+  windowMs:15*60*1000,
+  limit:300,
+  standardHeaders:true,
+  legacyHeaders:false,
+  message:{error:'RATE_LIMITED'}
+});
+const authLimiter=rateLimit({
+  windowMs:15*60*1000,
+  limit:20,
+  standardHeaders:true,
+  legacyHeaders:false,
+  message:{error:'AUTH_RATE_LIMITED'}
+});
+const gpsLimiter=rateLimit({
+  windowMs:60*1000,
+  limit:30,
+  standardHeaders:true,
+  legacyHeaders:false,
+  keyGenerator:req=>{
+    const deviceToken=String(req.headers['x-device-token']||'').trim();
+    return deviceToken
+      ? 'device:'+crypto.createHash('sha256').update(deviceToken).digest('hex')
+      : ipKeyGenerator(req.ip);
+  },
+  message:{error:'GPS_RATE_LIMITED'}
+});
+app.use('/api',generalLimiter);
+app.use('/api/gps',gpsLimiter);
 
 const pool=new Pool({
   connectionString:process.env.DATABASE_URL,
-  ssl:process.env.DATABASE_URL?{rejectUnauthorized:false}:false
+  ssl:process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 const PORT=Number(process.env.PORT||8787);
 const SESSION_DAYS=30;
@@ -78,7 +127,8 @@ app.get('/api/health',async(_req,res)=>{
   catch(e){res.status(503).json({ok:false,error:e.message});}
 });
 
-app.post('/api/auth/register',async(req,res)=>{
+app.post('/api/auth/register',authLimiter,async(req,res)=>{
+  if(process.env.NODE_ENV==='production'&&process.env.ALLOW_PUBLIC_REGISTER!=='true')return res.status(403).json({error:'PUBLIC_REGISTRATION_DISABLED'});
   const email=String(req.body?.email||'').trim().toLowerCase();
   const password=String(req.body?.password||'');
   const displayName=String(req.body?.displayName||email.split('@')[0]||'').trim();
@@ -94,7 +144,7 @@ app.post('/api/auth/register',async(req,res)=>{
   }catch(e){res.status(409).json({error:'USER_ALREADY_EXISTS'});}
 });
 
-app.post('/api/auth/login',async(req,res)=>{
+app.post('/api/auth/login',authLimiter,async(req,res)=>{
   const email=String(req.body?.email||'').trim().toLowerCase();
   const password=String(req.body?.password||'');
   const r=await q('SELECT * FROM users WHERE lower(email)=lower($1) LIMIT 1',[email]);
@@ -253,7 +303,7 @@ app.post('/api/gps',async(req,res)=>{
   const altitude=Number.isFinite(Number(b.altitude))?Number(b.altitude):null;
   const speed=Number.isFinite(Number(b.speed))?Number(b.speed):null;
   const heading=Number.isFinite(Number(b.heading))?Number(b.heading):null;
-  await q('INSERT INTO gps_current(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT(vehicle_id) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,accuracy=EXCLUDED.accuracy,altitude=EXCLUDED.altitude,speed=EXCLUDED.speed,heading=EXCLUDED.heading,observed_at=EXCLUDED.observed_at,received_at=NOW()',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
+  await q('INSERT INTO gps_current(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT(vehicle_id) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,accuracy=EXCLUDED.accuracy,altitude=EXCLUDED.altitude,speed=EXCLUDED.speed,heading=EXCLUDED.heading,observed_at=EXCLUDED.observed_at,received_at=NOW() WHERE gps_current.observed_at IS NULL OR gps_current.observed_at <= EXCLUDED.observed_at',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
   await q('INSERT INTO gps_history(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
   await q('UPDATE phones p SET last_seen_at=NOW(),updated_at=NOW() FROM assignments a WHERE a.phone_id=p.id AND a.vehicle_id=$1 AND a.active=true',[v.id]);
   res.json({ok:true,vehicleId:v.id,registration:v.registration,observedAt:observed.toISOString()});
@@ -363,6 +413,7 @@ app.delete('/api/store/:collection/:id',auth,async(req,res)=>{
 });
 
 app.use((err,_req,res,_next)=>{
+  if(err?.message==='Not allowed by CORS')return res.status(403).json({error:'CORS'});
   console.error('API error',err);
   if(res.headersSent)return;
   res.status(500).json({error:'INTERNAL_SERVER_ERROR'});
@@ -372,7 +423,16 @@ async function cleanupGpsHistory(){
   try{const result=await q("DELETE FROM gps_history WHERE observed_at < NOW()-INTERVAL '7 days'");console.log('GPS history cleanup',result.rowCount);}
   catch(error){console.error('GPS history cleanup failed',error);}
 }
-setInterval(cleanupGpsHistory,6*60*60*1000);
+setInterval(cleanupGpsHistory,6*60*60*1000).unref();
+
+async function cleanSessions(){
+  try{
+    const result=await q('DELETE FROM sessions WHERE expires_at < NOW()');
+    console.log('Sessions cleaned:',result.rowCount);
+  }catch(error){
+    console.error('Session cleanup failed',error);
+  }
+}
 
 async function bootstrap(){
   if(!process.env.DATABASE_URL)console.warn('DATABASE_URL is not set.');
@@ -380,6 +440,8 @@ async function bootstrap(){
     const schema=await readFile(new URL('./schema.sql',import.meta.url),'utf8');
     for(const statement of schema.split(';').map(x=>x.trim()).filter(Boolean))await q(statement);
     await cleanupGpsHistory();
+    await cleanSessions();
+    setInterval(cleanSessions,6*60*60*1000).unref();
   }
   app.listen(PORT,()=>console.log('Grafik Pracy central API listening on '+PORT));
 }

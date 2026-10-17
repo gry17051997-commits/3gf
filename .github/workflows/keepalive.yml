@@ -1,0 +1,29 @@
+name: Render Free keep-alive
+
+on:
+  schedule:
+    # Co 12 minut. GitHub Actions może opóźniać cron o 5–20 minut.
+    # Publiczne repozytorium nie zużywa puli minut dla standardowych runnerów.
+    # Jeśli repo stanie się prywatne, ten harmonogram może przekroczyć 2000 min/mies.
+    # Darmowa alternatywa lub backup: cron-job.org albo UptimeRobot.
+    - cron: "*/12 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-free-keepalive
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping Render health endpoint
+        env:
+          HEALTH_URL: https://grafik-pracy-api-fra.onrender.com/api/health
+        run: |
+          echo "Pinging Render Free health endpoint; HTTP errors must not fail this workflow."
+          curl --silent --show-error --fail --max-time 20 "$HEALTH_URL" || true

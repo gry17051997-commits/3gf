@@ -9,6 +9,8 @@ export const LOCATION_CONFIG_KEY='grafik-pracy-location-config-v2';
 export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
 export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
 export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
+export const LOCATION_PENDING_QUEUE_KEY='grafik-pracy-location-pending-queue-v1';
+const MAX_PENDING_GPS_SAMPLES=500;
 const LOCATION_OPTIONS_VERSION=3;
 
 export const normalizeVehicleId=value=>String(value||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40)||'SLUZBOWY';
@@ -72,29 +74,85 @@ async function saveLocationInternal(location){
     heading:Number.isFinite(c.heading)?Number(c.heading):null,
     observedAt:Number(location.timestamp||now)
   };
-  let result=null,lastError=null;
-  // Krótkie ponowienia chronią przed utratą pojedynczego pomiaru przy chwilowym
-  // zaniku sieci. Błąd API nigdy sam w sobie nie wyłącza usługi GPS.
-  for(let attempt=0;attempt<3;attempt++){
+  const readPendingQueue=async()=>{
     try{
-      result=await apiPostGps(payload,deviceToken);
-      lastError=null;
-      break;
+      const raw=await AsyncStorage.getItem(LOCATION_PENDING_QUEUE_KEY);
+      const parsed=raw?JSON.parse(raw):[];
+      return Array.isArray(parsed)
+        ?parsed.filter(item=>item&&item.payload&&typeof item.token==='string'&&item.token.trim()).slice(0,MAX_PENDING_GPS_SAMPLES)
+        :[];
     }catch(error){
-      lastError=error;
-      if(attempt<2) await new Promise(resolve=>setTimeout(resolve,750*(attempt+1)));
+      const message=String(error?.message||error||'unknown');
+      await patchDiagnostics({pendingQueueReadError:message.slice(0,240),pendingQueueReadErrorAt:Date.now()});
+      return [];
     }
+  };
+  const writePendingQueue=async queue=>{
+    await AsyncStorage.setItem(LOCATION_PENDING_QUEUE_KEY,JSON.stringify(queue.slice(0,MAX_PENDING_GPS_SAMPLES)));
+  };
+  const uploadWithRetries=async item=>{
+    let failure=null;
+    for(let attempt=0;attempt<3;attempt++){
+      try{return {result:await apiPostGps(item.payload,item.token),error:null};}
+      catch(error){
+        failure=error;
+        if(attempt<2)await new Promise(resolve=>setTimeout(resolve,750*(attempt+1)));
+      }
+    }
+    return {result:null,error:failure};
+  };
+  const recordPendingFailure=async(pending,error)=>{
+    const message=String(error?.message||error||'unknown');
+    const oldDiagnostics=await getLocationDiagnostics();
+    await patchDiagnostics({
+      lastUploadError:message.slice(0,240),
+      lastUploadErrorAt:Date.now(),
+      pendingGpsCount:pending.length,
+      pendingGpsOverflowCount:Number(oldDiagnostics.pendingGpsOverflowCount||0)
+    });
+    console.log('LOCATION_PENDING_QUEUE_RETRY_FAILED',message);
+  };
+
+  // FIFO: najpierw wysyłamy trwale zapisane pomiary, dopiero potem najnowszy.
+  // Po błędzie sieci kolejka pozostaje w AsyncStorage i przetrwa restart aplikacji.
+  let pending=await readPendingQueue();
+  while(pending.length){
+    const oldest=pending[0];
+    const sent=await uploadWithRetries(oldest);
+    if(!sent.result){
+      if(pending.length<MAX_PENDING_GPS_SAMPLES){
+        pending.push({payload,token:deviceToken});
+      }else{
+        const oldDiagnostics=await getLocationDiagnostics();
+        await patchDiagnostics({pendingGpsOverflowCount:Number(oldDiagnostics.pendingGpsOverflowCount||0)+1});
+      }
+      await writePendingQueue(pending);
+      await recordPendingFailure(pending,sent.error);
+      return;
+    }
+    pending.shift();
+    await writePendingQueue(pending);
+    await patchDiagnostics({pendingGpsCount:pending.length});
   }
-  if(!result){
-    const message=String(lastError?.message||lastError||'unknown');
-    await patchDiagnostics({lastUploadError:message.slice(0,240),lastUploadErrorAt:Date.now()});
-    console.log('LOCATION_API_WRITE_ERROR_AFTER_RETRIES',message);
+
+  const current=await uploadWithRetries({payload,token:deviceToken});
+  if(!current.result){
+    pending=await readPendingQueue();
+    if(pending.length<MAX_PENDING_GPS_SAMPLES){
+      pending.push({payload,token:deviceToken});
+    }else{
+      const oldDiagnostics=await getLocationDiagnostics();
+      await patchDiagnostics({pendingGpsOverflowCount:Number(oldDiagnostics.pendingGpsOverflowCount||0)+1});
+    }
+    await writePendingQueue(pending);
+    await recordPendingFailure(pending,current.error);
     return;
   }
+
   try{
-    await patchDiagnostics({lastUploadAt:Date.now(),lastUploadError:null,lastUploadErrorAt:null});
-    const assignedVehicleId=normalizeVehicleId(result.vehicleId||result.registration||cfg.vehicleId);
-    const local={...payload,vehicleId:assignedVehicleId,registration:result.registration||cfg.registration||'',receivedAt:Date.now()};
+    await patchDiagnostics({lastUploadAt:Date.now(),lastUploadError:null,lastUploadErrorAt:null,pendingGpsCount:0,pendingQueueReadError:null,pendingQueueReadErrorAt:null});
+    const assignedVehicleId=normalizeVehicleId(current.result.vehicleId||current.result.registration||cfg.vehicleId);
+    const local={...payload,vehicleId:assignedVehicleId,registration:current.result.registration||cfg.registration||'',receivedAt:Date.now()};
     let previous=null;try{const raw=await AsyncStorage.getItem(LOCATION_CURRENT_KEY);previous=raw?JSON.parse(raw):null;}catch{}
     const moved=previous?distanceMeters(previous,payload):Infinity;
     const historyAt=Number(previous?.historyAt||0);

@@ -18,3 +18,8 @@ build/
 # Archives and local artifacts
 *.zip
 *.apk
+
+# Local environment secrets
+.env
+.env.*
+!.env.example

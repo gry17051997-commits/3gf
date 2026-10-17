@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - fix/p0-production-hardening
     paths:
       - "GrafikPracy_Final/**"
       - ".github/workflows/build-apk.yml"
@@ -20,6 +21,7 @@ jobs:
       EXPO_NO_DOCTOR: "1"
       CI: "1"
       EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+      EXPO_PUBLIC_MAPTILER_KEY: ${{ secrets.EXPO_PUBLIC_MAPTILER_KEY }}
 
     defaults:
       run:
@@ -45,10 +47,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+
       - name: Verify central API URL
         run: |
           test -n "$EXPO_PUBLIC_API_URL"
           echo "Central API URL configured."
+          test -n "$EXPO_PUBLIC_MAPTILER_KEY"
+          echo "MapTiler key configured."
 
       - name: Apply deterministic build fixes
         run: |
@@ -56,18 +61,85 @@ jobs:
           node scripts/fix-chat-build.js
           node scripts/fix-rotation-switch.js
 
+      - name: Run production hardening tests
+        run: npm test
+
       - name: Generate Android project
         run: npx expo prebuild --platform android --no-install --non-interactive
 
-      - name: Build release APK
+      - name: Decode release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Brak sekretu GitHub: $name. APK release wymaga własnego keystore."
+              exit 1
+            fi
+          done
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/grafik-pracy-release.jks"
+          test -s "$RUNNER_TEMP/grafik-pracy-release.jks"
+          keytool -list -keystore "$RUNNER_TEMP/grafik-pracy-release.jks" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+          echo "Keystore zweryfikowany."
+
+      - name: Configure Gradle release signing
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("android/app/build.gradle")
+          source = path.read_text(encoding="utf-8")
+          marker = "    buildTypes {"
+          if marker not in source:
+              raise SystemExit("Nie znaleziono buildTypes w android/app/build.gradle")
+          if "System.getenv(\"KEYSTORE_FILE\")" not in source:
+              signing = """    signingConfigs {
+                  release {
+                      storeFile file(System.getenv("KEYSTORE_FILE"))
+                      storePassword System.getenv("KEYSTORE_PASSWORD")
+                      keyAlias System.getenv("KEY_ALIAS")
+                      keyPassword System.getenv("KEY_PASSWORD")
+                  }
+              }
+
+          """
+              source = source.replace(marker, signing + marker, 1)
+          start = source.index(marker)
+          prefix, build_types = source[:start], source[start:]
+          updated, count = re.subn(
+              r"(release\s*\{.*?signingConfig\s+)signingConfigs\.debug",
+              r"\1signingConfigs.release",
+              build_types,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit("Nie udało się bezpiecznie ustawić podpisywania buildType release")
+          path.write_text(prefix + updated, encoding="utf-8")
+          PY
+
+      - name: Build signed release APK
         working-directory: GrafikPracy_Final/android
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/grafik-pracy-release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
 
-      - name: Verify APK
+      - name: Verify signed APK
         run: |
-          test -s android/app/build/outputs/apk/release/app-release.apk
-          unzip -t android/app/build/outputs/apk/release/app-release.apk >/dev/null
-          ls -lh android/app/build/outputs/apk/release/app-release.apk
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose "$APK"
+          ls -lh "$APK"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
