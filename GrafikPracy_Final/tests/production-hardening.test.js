@@ -231,7 +231,12 @@ test('GPS tracking recovers when its last activity is stale and supports hard re
   const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
   assert.match(service, /const STALE_THRESHOLD_MS = 2\.5 \* 60 \* 1000/);
   assert.match(service, /assignment = \{ vehicleId: cfg\.vehicleId, registration: cfg\.registration \}/);
-  assert.match(service, /const lastActivity = Math\.max\(lastTaskAt, lastUploadAt\)/);
+  assert.match(service, /const taskStale = lastTaskAt > 0/);
+  assert.match(service, /const uploadStale = lastUploadAt > 0/);
+  assert.match(service, /const restartForStale = isStale && !recoveryCooldown/);
+  assert.match(service, /LOCATION_PENDING_QUEUE_KEY/);
+  assert.match(service, /const flushPendingGpsQueue=async/);
+  assert.match(service, /await enqueuePendingGps\\(payload,cfg\\.vehicleId\\)/);
   assert.match(service, /wasStale: isStale/);
   assert.match(service, /export async function forceRestartVehicleLocationTracking\(\)/);
   assert.match(app, /forceRestartVehicleLocationTracking/);
@@ -374,4 +379,15 @@ test('MapTiler key is supplied to Android APK builds and mini-map reports tile f
   assert.match(dashboard, /tileerror/);
   assert.match(dashboard, /Brak EXPO_PUBLIC_MAPTILER_KEY w konfiguracji APK/);
   assert.match(dashboard, /setNativeMapSize/);
+});
+
+
+test('GPS upload queue is durable and backend refuses to overwrite newer current positions', async () => {
+  const fs = await import('node:fs/promises');
+  const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  assert.match(service, /LOCATION_PENDING_QUEUE_KEY/);
+  assert.match(service, /MAX_PENDING_GPS_POINTS = 250/);
+  assert.match(service, /AsyncStorage\\.setItem\\(LOCATION_PENDING_QUEUE_KEY/);
+  assert.match(backend, /WHERE gps_current\\.observed_at <= EXCLUDED\\.observed_at/);
 });
