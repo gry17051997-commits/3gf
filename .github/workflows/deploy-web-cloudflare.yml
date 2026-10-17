@@ -72,7 +72,7 @@ jobs:
               if '</head>' not in html:
                   raise SystemExit('Could not find </head> in dist/index.html')
               css = css_path.read_text(encoding='utf-8')
-              html = html.replace('</head>', marker + '\\n' + css + '\\n</style>\\n</head>', 1)
+              html = html.replace('</head>', marker + '\n' + css + '\n</style>\n</head>', 1)
               index.write_text(html, encoding='utf-8')
           if marker not in index.read_text(encoding='utf-8'):
               raise SystemExit('Could not verify mobile CSS injection')
