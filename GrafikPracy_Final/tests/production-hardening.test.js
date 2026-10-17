@@ -236,7 +236,7 @@ test('GPS tracking recovers when its last activity is stale and supports hard re
   assert.match(service, /const restartForStale = isStale && !recoveryCooldown/);
   assert.match(service, /LOCATION_PENDING_QUEUE_KEY/);
   assert.match(service, /const flushPendingGpsQueue=async/);
-  assert.match(service, /await enqueuePendingGps\\(payload,cfg\\.vehicleId\\)/);
+  assert.match(service, /await enqueuePendingGps\(payload,cfg\.vehicleId\)/);
   assert.match(service, /wasStale: isStale/);
   assert.match(service, /export async function forceRestartVehicleLocationTracking\(\)/);
   assert.match(app, /forceRestartVehicleLocationTracking/);
@@ -388,6 +388,14 @@ test('GPS upload queue is durable and backend refuses to overwrite newer current
   const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
   assert.match(service, /LOCATION_PENDING_QUEUE_KEY/);
   assert.match(service, /MAX_PENDING_GPS_POINTS = 250/);
-  assert.match(service, /AsyncStorage\\.setItem\\(LOCATION_PENDING_QUEUE_KEY/);
-  assert.match(backend, /WHERE gps_current\\.observed_at <= EXCLUDED\\.observed_at/);
+  assert.match(service, /AsyncStorage\.setItem\(LOCATION_PENDING_QUEUE_KEY/);
+  assert.match(backend, /WHERE gps_current\.observed_at <= EXCLUDED\.observed_at/);
+});
+
+
+test('GPS ensure does not force a high-accuracy fix on every assignment poll', async () => {
+  const fs = await import('node:fs/promises');
+  const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  assert.match(service, /now - lastTaskAt > 30 \\* 1000/);
+  assert.match(service, /shouldRequestFreshFix/);
 });
