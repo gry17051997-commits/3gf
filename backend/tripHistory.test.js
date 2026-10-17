@@ -80,3 +80,17 @@ test('buildTrips handles newest-first database results without losing chronology
   assert.equal(trips[0].points[1].id, '4');
   assert.equal(trips[1].id, 'trip-1');
 });
+
+test('buildTrips includes a stop that continues through the last GPS sample', () => {
+  const rows = [
+    point(30, '2026-10-17T08:00:00Z', 51.0, 17.0, 10),
+    point(31, '2026-10-17T08:00:10Z', 51.0001, 17.0001, 10),
+    point(32, '2026-10-17T08:01:00Z', 51.0001, 17.0001, 0),
+    point(33, '2026-10-17T08:02:00Z', 51.0001, 17.0001, 0),
+    point(34, '2026-10-17T08:03:00Z', 51.0001, 17.0001, 0)
+  ];
+  const [trip] = buildTrips(rows);
+  assert.equal(trip.stops.length, 1);
+  assert.equal(trip.stops[0].durationSeconds, 120);
+  assert.equal(trip.stops[0].endedAt, '2026-10-17T08:03:00.000Z');
+});
