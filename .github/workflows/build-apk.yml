@@ -6,8 +6,10 @@ on:
     branches:
       - main
       - fix/native-maplibre-mini-map
+      - feature/trip-history-analytics
     paths:
       - "GrafikPracy_Final/**"
+      - "backend/**"
       - ".github/workflows/build-apk.yml"
 
 permissions:
