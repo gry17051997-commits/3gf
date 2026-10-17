@@ -1,0 +1,93 @@
+name: Deploy Web to Cloudflare Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPO_PUBLIC_API_URL: https://grafik-pracy-api-fra.onrender.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: GrafikPracy_Final/package-lock.json
+
+      - name: Verify Cloudflare configuration
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing GitHub secret CLOUDFLARE_API_TOKEN"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing GitHub secret CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+          test -n "$CLOUDFLARE_PAGES_PROJECT_NAME" || { echo "::error::Missing GitHub Actions variable CLOUDFLARE_PAGES_PROJECT_NAME"; exit 1; }
+          echo "Cloudflare configuration is present."
+
+      - name: Install dependencies
+        working-directory: GrafikPracy_Final
+        run: npm ci --ignore-scripts
+
+      - name: Run regression tests
+        working-directory: GrafikPracy_Final
+        run: npm test
+
+      - name: Verify central API configuration
+        run: |
+          test -n "$EXPO_PUBLIC_API_URL"
+          node -e "const u = new URL(process.env.EXPO_PUBLIC_API_URL); if (u.protocol !== 'https:') process.exit(1); console.log('Central API URL configured:', u.origin)"
+
+      - name: Export Expo web
+        working-directory: GrafikPracy_Final
+        run: npx expo export --platform web
+
+      - name: Apply smartphone web layout
+        working-directory: GrafikPracy_Final
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          index = Path('dist/index.html')
+          css_path = Path('web-mobile.css')
+          marker = '<style id="grafik-pracy-mobile">'
+          if not index.exists():
+              raise SystemExit('dist/index.html does not exist after Expo export')
+          if not css_path.exists():
+              raise SystemExit('web-mobile.css is missing')
+          html = index.read_text(encoding='utf-8')
+          if marker not in html:
+              if '</head>' not in html:
+                  raise SystemExit('Could not find </head> in dist/index.html')
+              css = css_path.read_text(encoding='utf-8')
+              html = html.replace('</head>', marker + '\\n' + css + '\\n</style>\\n</head>', 1)
+              index.write_text(html, encoding='utf-8')
+          if marker not in index.read_text(encoding='utf-8'):
+              raise SystemExit('Could not verify mobile CSS injection')
+          PY
+
+      - name: Verify exported site
+        working-directory: GrafikPracy_Final
+        run: |
+          test -s dist/index.html
+          test -s web-mobile.css
+          echo "Static web export is ready for Cloudflare Pages."
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy GrafikPracy_Final/dist --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }}
