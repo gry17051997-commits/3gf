@@ -7,13 +7,21 @@ import pg from 'pg';
 
 const {Pool}=pg;
 const app=express();
-const allowedOrigins=(process.env.ALLOWED_ORIGINS||'').split(',').map(origin=>origin.trim()).filter(Boolean);
-const isDev=process.env.NODE_ENV!=='production';
+const allowedOrigins=(process.env.ALLOWED_ORIGINS||'http://localhost:8081,http://localhost:19006,https://twoja-domena.pl').split(',').map(origin=>origin.trim()).filter(Boolean);
+
+app.disable('x-powered-by');
+app.use((req,res,next)=>{
+  res.setHeader('X-Content-Type-Options','nosniff');
+  res.setHeader('X-Frame-Options','DENY');
+  res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection','0');
+  next();
+});
+
 app.use(cors({
   origin:(origin,callback)=>{
     if(!origin)return callback(null,true);
     if(allowedOrigins.includes(origin))return callback(null,true);
-    if(isDev&&/^http:\/\/localhost:\d+$/.test(origin))return callback(null,true);
     return callback(new Error('Not allowed by CORS'));
   },
   credentials:true
@@ -48,7 +56,6 @@ const gpsLimiter=rateLimit({
   message:{error:'GPS_RATE_LIMITED'}
 });
 app.use('/api',generalLimiter);
-app.use('/api/auth',authLimiter);
 app.use('/api/gps',gpsLimiter);
 
 const pool=new Pool({
@@ -120,7 +127,7 @@ app.get('/api/health',async(_req,res)=>{
   catch(e){res.status(503).json({ok:false,error:e.message});}
 });
 
-app.post('/api/auth/register',async(req,res)=>{
+app.post('/api/auth/register',authLimiter,async(req,res)=>{
   if(process.env.NODE_ENV==='production'&&process.env.ALLOW_PUBLIC_REGISTER!=='true')return res.status(403).json({error:'PUBLIC_REGISTRATION_DISABLED'});
   const email=String(req.body?.email||'').trim().toLowerCase();
   const password=String(req.body?.password||'');
@@ -137,7 +144,7 @@ app.post('/api/auth/register',async(req,res)=>{
   }catch(e){res.status(409).json({error:'USER_ALREADY_EXISTS'});}
 });
 
-app.post('/api/auth/login',async(req,res)=>{
+app.post('/api/auth/login',authLimiter,async(req,res)=>{
   const email=String(req.body?.email||'').trim().toLowerCase();
   const password=String(req.body?.password||'');
   const r=await q('SELECT * FROM users WHERE lower(email)=lower($1) LIMIT 1',[email]);
