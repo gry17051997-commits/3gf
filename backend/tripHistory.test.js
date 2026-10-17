@@ -65,3 +65,18 @@ test('buildTrips closes a trip after a prolonged stationary stop', () => {
   assert.equal(trips[0].id, 'trip-25');
   assert.equal(trips[1].id, 'trip-20');
 });
+
+test('buildTrips handles newest-first database results without losing chronology', () => {
+  const newestFirst = [
+    point(4, '2026-10-17T09:00:10Z', 51.1001, 17.1001),
+    point(3, '2026-10-17T09:00:00Z', 51.1, 17.1),
+    point(2, '2026-10-17T08:00:10Z', 51.0001, 17.0001),
+    point(1, '2026-10-17T08:00:00Z', 51.0, 17.0)
+  ];
+  const trips = buildTrips(newestFirst, { includePoints: true });
+  assert.equal(trips.length, 2);
+  assert.equal(trips[0].id, 'trip-3');
+  assert.equal(trips[0].points[0].id, '3');
+  assert.equal(trips[0].points[1].id, '4');
+  assert.equal(trips[1].id, 'trip-1');
+});
