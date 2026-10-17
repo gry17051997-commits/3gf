@@ -134,6 +134,9 @@ export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs 
     if (previous && gap > gapMs) {
       if (stationary.length && stationaryDuration() < stationarySplitMs) current.push(...stationary);
       flush();
+      // Keep the first valid sample after a telemetry gap as the start candidate
+      // for the next trip; otherwise the first point is silently lost.
+      current = [row];
       previous = row;
       continue;
     }
