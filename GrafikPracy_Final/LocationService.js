@@ -297,13 +297,17 @@ export async function ensureVehicleLocationTracking() {
     })
   );
 
-  // Wykonaj natychmiastowy pomiar po wznowieniu trackingu.
-  try {
-    await saveLocation(
-      await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
-    );
-  } catch (e) {
-    console.log('LOCATION_REFRESH_ERROR', e);
+  // Don't force a high-accuracy GPS fix on every 5-second assignment poll.
+  // Request one after a restart or if native updates have not delivered a fix for 30s.
+  const shouldRequestFreshFix = restarted || isStale || !lastTaskAt || now - lastTaskAt > 30 * 1000;
+  if (shouldRequestFreshFix) {
+    try {
+      await saveLocation(
+        await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
+      );
+    } catch (e) {
+      console.log('LOCATION_REFRESH_ERROR', e);
+    }
   }
 
   await patchDiagnostics({
