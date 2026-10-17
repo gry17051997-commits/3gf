@@ -49,3 +49,19 @@ test('invalid rows are ignored and duplicate ordering remains stable', () => {
 test('distance is zero for identical coordinates', () => {
   assert.equal(distanceMeters({ latitude: 51, longitude: 17 }, { latitude: 51, longitude: 17 }), 0);
 });
+
+test('buildTrips closes a trip after a prolonged stationary stop', () => {
+  const rows = [
+    point(20, '2026-10-17T08:00:00Z', 51.0, 17.0, 10),
+    point(21, '2026-10-17T08:00:10Z', 51.0001, 17.0001, 10),
+    point(22, '2026-10-17T08:05:00Z', 51.0001, 17.0001, 0),
+    point(23, '2026-10-17T08:10:00Z', 51.0001, 17.0001, 0),
+    point(24, '2026-10-17T08:15:00Z', 51.0001, 17.0001, 0),
+    point(25, '2026-10-17T08:16:00Z', 51.0010, 17.0010, 10),
+    point(26, '2026-10-17T08:16:10Z', 51.0011, 17.0011, 10)
+  ];
+  const trips = buildTrips(rows);
+  assert.equal(trips.length, 2);
+  assert.equal(trips[0].id, 'trip-25');
+  assert.equal(trips[1].id, 'trip-20');
+});
