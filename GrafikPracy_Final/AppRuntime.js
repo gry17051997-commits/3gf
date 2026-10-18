@@ -1072,7 +1072,24 @@ export default function App() {
         const result = await startVehicleLocationTracking({vehicleId:vehicleRegistration,registration:vehicleRegistration});
         if (result.ok) {
           setLocationTracking(true);
-          Alert.alert('Lokalizacja aktywna','Służbowy telefon będzie wysyłał pozycję w tle.');
+          Alert.alert(
+            'GPS w tle: ważne ustawienie',
+            'Nadajnik został uruchomiony. Żeby GPS działał po zablokowaniu ekranu, sprawdź ustawienia telefonu:\n\n• Bateria dla Grafik Pracy: Bez ograniczeń / Nie optymalizuj.\n• Autostart: włącz Grafik Pracy.\n• Zezwól na działanie w tle i wysokie zużycie energii w tle, jeśli telefon ma te opcje.\n• Nie ograniczaj aktywności aplikacji po zablokowaniu ekranu.\n• Pozostaw widoczne powiadomienie „GPS aktywny”.\n\nNazwy opcji różnią się między Redmi/Xiaomi (HyperOS) i vivo (Funtouch OS). Android i producent mogą mimo to zatrzymać usługę, jeśli system wymusi zamknięcie aplikacji. Po zmianach sprawdź GPS z zablokowanym ekranem przez 10–15 minut.',
+            [
+              {text:'Później', style:'cancel'},
+              {
+                text:'Ustawienia baterii',
+                onPress: () => {
+                  if (Platform.OS === 'android' && typeof Linking.sendIntent === 'function') {
+                    Linking.sendIntent('android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS')
+                      .catch(() => Linking.openSettings());
+                  } else {
+                    Linking.openSettings();
+                  }
+                }
+              }
+            ]
+          );
         } else if (result.reason === 'background-permission') {
           Alert.alert('Lokalizacja','Android nie przyznał dostępu do lokalizacji w tle. Włącz „Zawsze zezwalaj” w ustawieniach aplikacji.');
         } else if (result.reason === 'foreground-permission') {
