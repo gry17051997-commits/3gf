@@ -20,13 +20,27 @@ export async function api(path, {method = 'GET', body, headers = {}} = {}) {
   const h = {'Content-Type': 'application/json', ...headers};
   if (t) h.Authorization = 'Bearer ' + t;
   const url = API_BASE_URL + path;
+  const controller = new AbortController();
+  let timeoutId = null;
 
   try {
-    const r = await fetch(url, {
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        const error = new Error('API_TIMEOUT');
+        error.code = 'API_TIMEOUT';
+        reject(error);
+      }, 15000);
+    });
+
+    const fetchPromise = fetch(url, {
       method,
       headers: h,
-      body: body === undefined ? undefined : JSON.stringify(body)
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal
     });
+
+    const r = await Promise.race([fetchPromise, timeoutPromise]);
 
     let data = null;
     try { data = await r.json(); } catch {}
@@ -54,6 +68,8 @@ export async function api(path, {method = 'GET', body, headers = {}} = {}) {
       message: enhanced.message
     });
     throw enhanced;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }
 export async function apiLogin(email,password){const data=await api('/auth/login',{method:'POST',body:{email,password}});await AsyncStorage.setItem(API_TOKEN_KEY,data.token);return data.user;}
