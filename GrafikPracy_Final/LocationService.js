@@ -146,7 +146,7 @@ const flushGpsQueue = async () => {
     while (queue.length) {
       const item = queue[0];
       try {
-        await apiPostGps({
+        const uploadResult = await apiPostGps({
           latitude: Number(item.latitude),
           longitude: Number(item.longitude),
           accuracy: Number(item.accuracy || 0),
@@ -155,6 +155,7 @@ const flushGpsQueue = async () => {
           heading: item.heading ?? null,
           observedAt: Number(item.observedAt || item.queuedAt || Date.now())
         }, token);
+        if (!uploadResult) throw new Error('GPS_QUEUE_UPLOAD_EMPTY_RESPONSE');
         queue = queue.slice(1);
         await saveGpsQueue(queue);
         await patchDiagnostics({queuedGpsCount: queue.length, lastQueueFlushAt: Date.now(), queueWriteError: null});
