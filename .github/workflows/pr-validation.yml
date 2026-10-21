@@ -19,6 +19,8 @@ concurrency:
 env:
   EXPO_NO_DOCTOR: "1"
   CI: "1"
+  # Public URL is embedded into the test APK at build time by Expo.
+  EXPO_PUBLIC_API_URL: "https://grafik-pracy-api.onrender.com"
 
 jobs:
   validate:
