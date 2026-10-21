@@ -462,21 +462,32 @@ export default function App() {
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web' || cloudRole !== 'locator') return;
-    let mounted=true;
-    const refresh=async()=>{
-      try{
-        const c=await getVehicleLocationConfig();
-        if(!mounted)return;
-        await syncLocatorGpsFromCentralAssignment(c.registration||c.vehicleId||'');
-        const diagnostics=await getLocationDiagnostics();
-        if(mounted)setLocationDiagnostics(diagnostics);
-      }catch(e){if(mounted)setLocationTracking(false);}
+    let mounted = true;
+    let refreshing = false;
+    const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const c = await getVehicleLocationConfig();
+        if (!mounted) return;
+        await syncLocatorGpsFromCentralAssignment(c.registration || c.vehicleId || '');
+        const diagnostics = await getLocationDiagnostics();
+        if (mounted) setLocationDiagnostics(diagnostics);
+      } catch (e) {
+        if (mounted) setLocationTracking(false);
+      } finally {
+        refreshing = false;
+      }
     };
     refresh();
-    const timer=setInterval(refresh,5000);
-    const sub=AppState.addEventListener('change',state=>{if(state==='active')refresh();});
-    return()=>{mounted=false;clearInterval(timer);sub?.remove?.();};
-  },[ready,cloudRole]);
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    return () => {
+      mounted = false;
+      sub?.remove?.();
+    };
+  }, [ready, cloudRole]);
   useEffect(() => {
     let mounted=true;
     (async()=>{
