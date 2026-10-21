@@ -1340,12 +1340,14 @@ export default function App() {
       const message =
         e?.code === 'INVALID_CREDENTIALS'
           ? 'Nieprawidłowy e-mail lub hasło.'
-          : e?.message || 'Brak połączenia z centralnym serwerem.';
+          : e?.code === 'API_TIMEOUT' || e?.message === 'API_TIMEOUT'
+            ? 'Serwer nie odpowiada. Sprawdź połączenie z centralnym API.'
+            : e?.message || 'Brak połączenia z centralnym serwerem.';
 
       console.log('[LOGIN_ERROR]', {
         code: e?.code,
         status: e?.status,
-        message,
+        message: e?.message,
         url: e?.url,
         apiBase: e?.apiBase,
         expoPublicApiUrl: e?.expoPublicApiUrl
@@ -1354,7 +1356,7 @@ export default function App() {
       setCloudError(
         e?.code === 'INVALID_CREDENTIALS'
           ? 'Nieprawidłowy e-mail lub hasło.'
-          : 'Nie udało się zalogować do centralnego serwera. ' + message
+          : message
       );
     }finally{setAuthBusy(false);}
   };
