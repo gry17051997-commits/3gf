@@ -355,11 +355,9 @@ export async function startVehicleLocationTracking({vehicleId, registration} = {
 
 export async function stopVehicleLocationTracking() {
   if (Platform.OS !== 'web') {
-    try {
-      if (await verifyTaskStarted()) await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-    } catch (error) {
-      console.log('LOCATION_STOP_ERROR', error);
-    }
+    // Nie czyść lokalnego przypisania, jeśli nie udało się sprawdzić lub zatrzymać taska.
+    const running = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+    if (running) await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
   }
   const old = await getConfig();
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY, JSON.stringify({...old, enabled: false}));
