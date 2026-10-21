@@ -1336,8 +1336,26 @@ export default function App() {
       setGuestMode(false);
       setAuthPassword('');
       setCloudReady(true);
-    }catch(e){
-      setCloudError(e?.code==='INVALID_CREDENTIALS'?'Nieprawidłowy e-mail lub hasło.':'Nie udało się zalogować do centralnego serwera.');
+    }catch (e) {
+      const message =
+        e?.code === 'INVALID_CREDENTIALS'
+          ? 'Nieprawidłowy e-mail lub hasło.'
+          : e?.message || 'Brak połączenia z centralnym serwerem.';
+
+      console.log('[LOGIN_ERROR]', {
+        code: e?.code,
+        status: e?.status,
+        message,
+        url: e?.url,
+        apiBase: e?.apiBase,
+        expoPublicApiUrl: e?.expoPublicApiUrl
+      });
+
+      setCloudError(
+        e?.code === 'INVALID_CREDENTIALS'
+          ? 'Nieprawidłowy e-mail lub hasło.'
+          : 'Nie udało się zalogować do centralnego serwera. ' + message
+      );
     }finally{setAuthBusy(false);}
   };
 
