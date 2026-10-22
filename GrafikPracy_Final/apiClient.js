@@ -6,7 +6,57 @@ export const API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : '';
 export const API_TOKEN_KEY='grafik-pracy-api-token-v1';
 
 async function token(){return AsyncStorage.getItem(API_TOKEN_KEY);}
-export async function api(path,{method='GET',body,headers={}}={}){if(!API_BASE_URL)throw new Error('Brak EXPO_PUBLIC_API_URL. Aplikacja nie ma skonfigurowanego centralnego API.');const t=await token();const h={'Content-Type':'application/json',...headers};if(t)h.Authorization='Bearer '+t;const r=await fetch(API_BASE_URL+path,{method,headers:h,body:body===undefined?undefined:JSON.stringify(body)});let data=null;try{data=await r.json();}catch{}if(!r.ok){const e=new Error(data?.error||'API_ERROR');e.status=r.status;e.code=data?.error;throw e;}return data;}
+export async function api(path,{method='GET',body,headers={}}={}){
+  if(!API_BASE_URL)throw new Error('Brak EXPO_PUBLIC_API_URL. Aplikacja nie ma skonfigurowanego centralnego API.');
+
+  const controller=new AbortController();
+  let timeoutId;
+  let timedOut=false;
+  let timeoutError;
+
+  try{
+    const timeout=new Promise((_,reject)=>{
+      timeoutId=setTimeout(()=>{
+        timedOut=true;
+        timeoutError=new Error('API_TIMEOUT');
+        timeoutError.code='API_TIMEOUT';
+        timeoutError.status=408;
+        reject(timeoutError);
+        controller.abort();
+      },15000);
+    });
+
+    const operation=(async()=>{
+      try{
+        const t=await token();
+        const h={'Content-Type':'application/json',...headers};
+        if(t)h.Authorization='Bearer '+t;
+        const r=await fetch(API_BASE_URL+path,{
+          method,
+          headers:h,
+          body:body===undefined?undefined:JSON.stringify(body),
+          signal:controller.signal
+        });
+        let data=null;
+        try{data=await r.json();}catch{}
+        if(!r.ok){
+          const e=new Error(data?.error||'API_ERROR');
+          e.status=r.status;
+          if(data?.error!==undefined)e.code=data.error;
+          throw e;
+        }
+        return data;
+      }catch(error){
+        if(timedOut)throw timeoutError;
+        throw error;
+      }
+    })();
+
+    return await Promise.race([operation,timeout]);
+  }finally{
+    if(timeoutId!==undefined)clearTimeout(timeoutId);
+  }
+}
 export async function apiLogin(email,password){const data=await api('/auth/login',{method:'POST',body:{email,password}});await AsyncStorage.setItem(API_TOKEN_KEY,data.token);return data.user;}
 export async function apiLogout(){try{await api('/auth/logout',{method:'POST'});}finally{await AsyncStorage.removeItem(API_TOKEN_KEY);}}
 export async function apiMe(){return (await api('/me')).user;}
