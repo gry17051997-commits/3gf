@@ -21,7 +21,13 @@ const matchTripToRoads = async points => {
       const timestamps=chunk.map(p=>Math.floor(Date.parse(p.observedAt)/1000)).join(';');
       const radiuses=chunk.map(p=>Math.min(100,Math.max(5,Number(p.accuracy)||25))).join(';');
       const url='https://router.project-osrm.org/match/v1/driving/'+coords+'?geometries=geojson&overview=full&timestamps='+timestamps+'&radiuses='+radiuses+'&gaps=split&tidy=true';
-      const response=await fetch(url,{headers:{Accept:'application/json'}}); if(!response.ok)throw new Error('OSRM_HTTP_'+response.status);
+      const controller=new AbortController(); let timeoutId;
+      let response;
+      try {
+        const timeout=new Promise((_,reject)=>{timeoutId=setTimeout(()=>{controller.abort();reject(new Error('OSRM_TIMEOUT'));},12000);});
+        response=await Promise.race([fetch(url,{headers:{Accept:'application/json'},signal:controller.signal}),timeout]);
+      } finally { if(timeoutId)clearTimeout(timeoutId); }
+      if(!response.ok)throw new Error('OSRM_HTTP_'+response.status);
       const data=await response.json(); if(data.code!=='Ok'||!Array.isArray(data.matchings))continue;
       for(const matching of data.matchings){const line=matching?.geometry?.coordinates;if(Array.isArray(line)&&line.length>1)output.push(line.map(([lon,lat])=>[Number(lat),Number(lon)]));}
       if(start+80>=segment.length)break;
