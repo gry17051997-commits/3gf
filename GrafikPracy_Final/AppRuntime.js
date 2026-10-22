@@ -25,7 +25,7 @@ import * as Clipboard from 'expo-clipboard';
 import {captureRef} from 'react-native-view-shot';
 import * as Location from 'expo-location';
 import LiveLocationDashboard from './LiveLocationDashboard';
-import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, normalizeVehicleId, getLocationDeviceToken, setLocationDeviceToken, getLocationDiagnostics, LOCATION_CONFIG_KEY} from './LocationService';
+import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, forceRestartVehicleLocationTracking, normalizeVehicleId, getLocationDeviceToken, setLocationDeviceToken, getLocationDiagnostics, LOCATION_CONFIG_KEY} from './LocationService';
 import {CENTRAL_API_ENABLED, db} from './firebaseConfig';
 import {apiLogin,apiLogout,apiMe,api,collection,doc,setDoc,getDoc,onSnapshot,serverTimestamp,addDoc,query,where,updateDoc,deleteField,orderBy,limit,runTransaction} from './apiClient';
 import NowDashboard from './NowDashboard';
@@ -443,7 +443,7 @@ export default function App() {
       if (local.enabled === true) await stopVehicleLocationTracking();
       setVehicleRegistration('');
       setLocationTracking(false);
-      return;
+      return {ok:false,reason:'device-not-assigned'};
     }
     setVehicleRegistration(normalizedAssigned);
     if (localAssigned !== normalizedAssigned && local.enabled === true) {
@@ -452,29 +452,50 @@ export default function App() {
       const restarted = await startVehicleLocationTracking({vehicleId:normalizedAssigned,registration:normalizedAssigned});
       setLocationTracking(restarted.ok===true);
       if (!restarted.ok && restarted.reason!=='app-not-active') setCloudError('Nie udało się przełączyć nadajnika GPS. Kod: '+(restarted.reason||'unknown'));
-      return;
+      return restarted;
     }
     if (local.enabled === true) {
       const result=await ensureVehicleLocationTracking();
       setLocationTracking(result.ok===true);
+      return result;
     }
+    return {ok:false,reason:'disabled'};
   };
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web' || cloudRole !== 'locator') return;
     let mounted=true;
-    const refresh=async()=>{
+    let refreshing=false;
+    let resumeRequested=false;
+    const refresh=async(onResume=false)=>{
+      if(onResume)resumeRequested=true;
+      if(refreshing)return;
+      refreshing=true;
+      const handlingResume=resumeRequested;
+      resumeRequested=false;
       try{
         const c=await getVehicleLocationConfig();
         if(!mounted)return;
-        await syncLocatorGpsFromCentralAssignment(c.registration||c.vehicleId||'');
+        const result=await syncLocatorGpsFromCentralAssignment(c.registration||c.vehicleId||'');
+        if(!mounted)return;
+        if(handlingResume && (result?.wasStale || !result?.ok)){
+          const hard=await forceRestartVehicleLocationTracking();
+          if(mounted)setLocationTracking(hard.ok===true);
+        }else if(handlingResume){
+          setLocationTracking(result.ok===true);
+        }
         const diagnostics=await getLocationDiagnostics();
         if(mounted)setLocationDiagnostics(diagnostics);
-      }catch(e){if(mounted)setLocationTracking(false);}
+      }catch(e){
+        if(mounted)console.log('APPSTATE_GPS_RECOVERY_ERROR',e);
+      }finally{
+        refreshing=false;
+        if(mounted && resumeRequested)refresh(true);
+      }
     };
     refresh();
-    const timer=setInterval(refresh,5000);
-    const sub=AppState.addEventListener('change',state=>{if(state==='active')refresh();});
+    const timer=setInterval(()=>refresh(false),5000);
+    const sub=AppState.addEventListener('change',state=>{if(state==='active')refresh(true);});
     return()=>{mounted=false;clearInterval(timer);sub?.remove?.();};
   },[ready,cloudRole]);
   useEffect(() => {
