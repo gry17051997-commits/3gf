@@ -6,7 +6,72 @@ export const API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : '';
 export const API_TOKEN_KEY='grafik-pracy-api-token-v1';
 
 async function token(){return AsyncStorage.getItem(API_TOKEN_KEY);}
-export async function api(path,{method='GET',body,headers={}}={}){if(!API_BASE_URL)throw new Error('Brak EXPO_PUBLIC_API_URL. Aplikacja nie ma skonfigurowanego centralnego API.');const t=await token();const h={'Content-Type':'application/json',...headers};if(t)h.Authorization='Bearer '+t;const r=await fetch(API_BASE_URL+path,{method,headers:h,body:body===undefined?undefined:JSON.stringify(body)});let data=null;try{data=await r.json();}catch{}if(!r.ok){const e=new Error(data?.error||'API_ERROR');e.status=r.status;e.code=data?.error;throw e;}return data;}
+export async function api(path, {method = 'GET', body, headers = {}} = {}) {
+  if (!API_BASE_URL) {
+    const error = new Error('Brak EXPO_PUBLIC_API_URL. Aplikacja nie ma skonfigurowanego centralnego API.');
+    error.code = 'MISSING_API_URL';
+    error.apiBase = API_BASE_URL;
+    error.expoPublicApiUrl = process.env.EXPO_PUBLIC_API_URL || '';
+    console.log('[API_DEBUG]', {url: path, apiBase: API_BASE_URL, expoPublicApiUrl: error.expoPublicApiUrl, code: error.code, message: error.message});
+    throw error;
+  }
+
+  const t = await token();
+  const h = {'Content-Type': 'application/json', ...headers};
+  if (t) h.Authorization = 'Bearer ' + t;
+  const url = API_BASE_URL + path;
+  const controller = new AbortController();
+  let timeoutId = null;
+
+  try {
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        const error = new Error('API_TIMEOUT');
+        error.code = 'API_TIMEOUT';
+        reject(error);
+      }, 15000);
+    });
+
+    const fetchPromise = fetch(url, {
+      method,
+      headers: h,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal
+    });
+
+    const r = await Promise.race([fetchPromise, timeoutPromise]);
+
+    let data = null;
+    try { data = await r.json(); } catch {}
+
+    if (!r.ok) {
+      const error = new Error(data?.error || 'API_ERROR');
+      error.status = r.status;
+      error.code = data?.error || 'API_ERROR';
+      error.url = url;
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    const enhanced = error instanceof Error ? error : new Error(String(error));
+    enhanced.url = url;
+    enhanced.apiBase = API_BASE_URL;
+    enhanced.expoPublicApiUrl = process.env.EXPO_PUBLIC_API_URL || '';
+    console.log('[API_DEBUG]', {
+      url: enhanced.url,
+      apiBase: enhanced.apiBase,
+      expoPublicApiUrl: enhanced.expoPublicApiUrl,
+      status: enhanced.status,
+      code: enhanced.code,
+      message: enhanced.message
+    });
+    throw enhanced;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 export async function apiLogin(email,password){const data=await api('/auth/login',{method:'POST',body:{email,password}});await AsyncStorage.setItem(API_TOKEN_KEY,data.token);return data.user;}
 export async function apiLogout(){try{await api('/auth/logout',{method:'POST'});}finally{await AsyncStorage.removeItem(API_TOKEN_KEY);}}
 export async function apiMe(){return (await api('/me')).user;}
