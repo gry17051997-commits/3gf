@@ -5,8 +5,96 @@ const API_ORIGIN=String(process.env.EXPO_PUBLIC_API_URL||'').trim().replace(/\/+
 export const API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : '';
 export const API_TOKEN_KEY='grafik-pracy-api-token-v1';
 
+const DEFAULT_API_TIMEOUT_MS = 15000;
+
+function createTimeoutError(){
+  const error = new Error('API_TIMEOUT');
+  error.name = 'TimeoutError';
+  error.code = 'API_TIMEOUT';
+  error.status = 408;
+  return error;
+}
+
+function createNetworkError(){
+  const error = new Error('NETWORK_ERROR');
+  error.name = 'NetworkError';
+  error.code = 'NETWORK_ERROR';
+  error.status = 0;
+  return error;
+}
+
+function isLikelyNetworkError(error){
+  if(!(error instanceof TypeError))return false;
+  const text=(error.message||'').toLowerCase();
+  return text.includes('failed to fetch') ||
+    text.includes('network request failed') ||
+    text.includes('network error') ||
+    text.includes('load failed');
+}
+
+const withDeadline = (work, timeoutMs, controller) => {
+  let timerId;
+  let timedOut = false;
+  let timeoutError;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timerId = setTimeout(() => {
+      timedOut = true;
+      timeoutError = createTimeoutError();
+      controller.abort();
+      reject(timeoutError);
+    }, timeoutMs);
+  });
+
+  const operationPromise = Promise.resolve().then(work);
+  return Promise.race([operationPromise, timeoutPromise])
+    .catch((error) => {
+      if (timedOut) throw timeoutError;
+      throw error;
+    })
+    .finally(() => {
+      clearTimeout(timerId);
+    });
+};
+
 async function token(){return AsyncStorage.getItem(API_TOKEN_KEY);}
-export async function api(path,{method='GET',body,headers={}}={}){if(!API_BASE_URL)throw new Error('Brak EXPO_PUBLIC_API_URL. Aplikacja nie ma skonfigurowanego centralnego API.');const t=await token();const h={'Content-Type':'application/json',...headers};if(t)h.Authorization='Bearer '+t;const r=await fetch(API_BASE_URL+path,{method,headers:h,body:body===undefined?undefined:JSON.stringify(body)});let data=null;try{data=await r.json();}catch{}if(!r.ok){const e=new Error(data?.error||'API_ERROR');e.status=r.status;e.code=data?.error;throw e;}return data;}
+export async function api(path,{method='GET',body,headers={},timeoutMs=DEFAULT_API_TIMEOUT_MS}={}){
+  if(!API_BASE_URL)throw new Error('Brak EXPO_PUBLIC_API_URL. Aplikacja nie ma skonfigurowanego centralnego API.');
+  const controller = new AbortController();
+
+  try {
+    return await withDeadline(async () => {
+      const t = await token();
+      if (controller.signal.aborted) throw createTimeoutError();
+      const h = {'Content-Type':'application/json',...headers};
+      if(t)h.Authorization='Bearer '+t;
+      const r = await fetch(API_BASE_URL+path,{
+        method,headers:h,
+        body:body===undefined?undefined:JSON.stringify(body),
+        signal:controller.signal
+      });
+      let data=null;
+      try {
+        data=await r.json();
+      } catch (error) {
+        if (controller.signal.aborted) throw createTimeoutError();
+        // Preserve legacy behavior for non-JSON HTTP bodies.
+      }
+      if(controller.signal.aborted) throw createTimeoutError();
+      if(!r.ok){
+        const e=new Error(data?.error||'API_ERROR');
+        e.status=r.status;
+        e.code=data?.error;
+        throw e;
+      }
+      return data;
+    }, timeoutMs, controller);
+  } catch(error) {
+    if(error?.code==='API_TIMEOUT' || error?.name==='TimeoutError') throw createTimeoutError();
+    if(error instanceof TypeError && isLikelyNetworkError(error)) throw createNetworkError();
+    throw error;
+  }
+}
 export async function apiLogin(email,password){const data=await api('/auth/login',{method:'POST',body:{email,password}});await AsyncStorage.setItem(API_TOKEN_KEY,data.token);return data.user;}
 export async function apiLogout(){try{await api('/auth/logout',{method:'POST'});}finally{await AsyncStorage.removeItem(API_TOKEN_KEY);}}
 export async function apiMe(){return (await api('/me')).user;}
