@@ -348,3 +348,26 @@ test('central API client prefixes every endpoint with the backend /api mount', (
   assert.ok(client.includes("api('/auth/login'"));
   assert.ok(server.includes("app.post('/api/auth/login'"));
 });
+
+test('central API requests have a 15-second timeout covering token, fetch, and response parsing', () => {
+  const source = fs.readFileSync(new URL('../apiClient.js', import.meta.url), 'utf8');
+  const start = source.indexOf('export async function api(path,');
+  const end = source.indexOf('export async function apiLogin(', start);
+  assert.ok(start >= 0 && end > start);
+  const block = source.slice(start, end);
+
+  assert.match(block, /new AbortController\(\)/);
+  assert.match(block, /setTimeout\([\s\S]*?15000/);
+  assert.match(block, /signal:controller\.signal/);
+  assert.match(block, /Promise\.race\(\[operation,timeout\]\)/);
+  assert.match(block, /controller\.abort\(\)/);
+  assert.match(block, /timeoutError\.code='API_TIMEOUT'/);
+  assert.match(block, /timeoutError\.status=408/);
+  assert.match(block, /if\(timedOut\)throw timeoutError/);
+  assert.match(block, /finally\s*\{[\s\S]*?clearTimeout\(timeoutId\)/);
+  assert.match(block, /const t=await token\(\)/);
+  assert.match(block, /data=await r\.json\(\)/);
+  assert.match(block, /e\.status=r\.status/);
+  assert.match(block, /if\(data\?\.error!==undefined\)e\.code=data\.error/);
+});
+
