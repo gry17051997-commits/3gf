@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_URL_CONFIG=String(process.env.EXPO_PUBLIC_API_URL||'').trim().replace(/\/+$/,'');
-const API_ORIGIN=API_URL_CONFIG.replace(/\/api$/i,'').replace(/\/+$/,'');
+const API_ORIGIN=API_URL_CONFIG.replace(/(?:\/api)+\/?$/i,'').replace(/\/+$/,'');
 const API_URL_VALID=(()=>{if(!API_ORIGIN)return false;try{const u=new URL(API_ORIGIN);return (u.protocol==='https:'||u.protocol==='http:')&&!!u.host&&u.pathname==='/'&&!u.search&&!u.hash;}catch{return false;}})();
 // EXPO_PUBLIC_API_URL is an origin only, for example https://example.com. Never append /api twice.
 export const API_BASE_URL=API_URL_VALID ? API_ORIGIN+'/api' : '';
@@ -33,7 +33,8 @@ export async function api(path,{method='GET',body,headers={}}={}){
         const t=await token();
         const h={'Content-Type':'application/json',...headers};
         if(t)h.Authorization='Bearer '+t;
-        const r=await fetch(API_BASE_URL+path,{
+        const normalizedPath='/' + String(path||'').replace(/^\/+/, '').replace(/^api\//i, '');
+        const r=await fetch(API_BASE_URL+normalizedPath,{
           method,
           headers:h,
           body:body===undefined?undefined:JSON.stringify(body),
@@ -59,6 +60,7 @@ export async function api(path,{method='GET',body,headers={}}={}){
     if(timeoutId!==undefined)clearTimeout(timeoutId);
   }
 }
+export async function apiHealth(){return api('/health');}
 export async function apiLogin(email,password){const data=await api('/auth/login',{method:'POST',body:{email,password}});await AsyncStorage.setItem(API_TOKEN_KEY,data.token);return data.user;}
 export async function apiLogout(){try{await api('/auth/logout',{method:'POST'});}finally{await AsyncStorage.removeItem(API_TOKEN_KEY);}}
 export async function apiMe(){return (await api('/me')).user;}
