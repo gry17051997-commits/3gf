@@ -345,8 +345,9 @@ test('central API client prefixes every endpoint with the backend /api mount', (
   const client = fs.readFileSync(new URL('../apiClient.js', import.meta.url), 'utf8');
   const server = fs.readFileSync(new URL('../../backend/server.js', import.meta.url), 'utf8');
   assert.match(client,/API_BASE_URL=API_URL_VALID\s*\?\s*API_ORIGIN\+'\/api'\s*:\s*''/);
-  assert.match(client,/replace\(\/\(\?:\\\/api\)\+\\\/?\$\/i,''\)/);
-  assert.match(client,/normalizedPath=.*replace\(\/\^\\\/+\//);
+  assert.ok(client.includes("replace(/(?:\\/api)+\\/?$/i,'')"));
+  assert.ok(client.includes("replace(/^\\/+/, '')"));
+  assert.ok(client.includes("replace(/^api\\//i, '')"));
   assert.ok(client.includes("api('/auth/login'"));
   assert.ok(server.includes("app.post('/api/auth/login'"));
 });
