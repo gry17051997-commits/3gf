@@ -11,7 +11,7 @@ const matchTripToRoads = async points => {
   if (valid.length < 2) return [];
   const distance = (a,b) => { const rad=v=>v*Math.PI/180, p1=rad(Number(a.latitude)), p2=rad(Number(b.latitude)), dp=rad(Number(b.latitude)-Number(a.latitude)), dl=rad(Number(b.longitude)-Number(a.longitude)), h=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2; return 6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h))); };
   const continuous=[]; let current=[];
-  for (const point of valid) { const prev=current[current.length-1]; if(prev&&(Date.parse(point.observedAt)-Date.parse(prev.observedAt)>60000||distance(prev,point)>2000)){if(current.length>1)continuous.push(current);current=[];} current.push(point); }
+  for (const point of valid) { const prev=current[current.length-1]; if(prev&&(Date.parse(point.observedAt)-Date.parse(prev.observedAt)<=0||Date.parse(point.observedAt)-Date.parse(prev.observedAt)>60000||distance(prev,point)>2000)){if(current.length>1)continuous.push(current);current=[];} current.push(point); }
   if(current.length>1)continuous.push(current);
   const output=[];
   for(const segment of continuous){
