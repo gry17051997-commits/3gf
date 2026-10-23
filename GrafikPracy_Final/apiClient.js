@@ -1,15 +1,27 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_ORIGIN=String(process.env.EXPO_PUBLIC_API_URL||'').trim().replace(/\/+$/,'').replace(/\/api$/i,'');
-// The central Express API mounts all routes under /api (including /api/auth/login).
-export const API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : '';
+const API_URL_CONFIG = String(process.env.EXPO_PUBLIC_API_URL || '').trim().replace(/\/+$/, '');
+const API_ORIGIN = API_URL_CONFIG.replace(/\/api\/?$/i, '').replace(/\/+$/, '');
+const API_URL_VALID = (() => {
+  if (!API_ORIGIN) return false;
+  try {
+    const parsed = new URL(API_ORIGIN);
+    return ['http:', 'https:'].includes(parsed.protocol) &&
+      Boolean(parsed.host) && parsed.pathname === '/' &&
+      !parsed.search && !parsed.hash;
+  } catch {
+    return false;
+  }
+})();
+// EXPO_PUBLIC_API_URL is an origin only. API routes are mounted under /api.
+export const API_BASE_URL = API_URL_VALID ? API_ORIGIN + '/api' : '';
 export const API_TOKEN_KEY='grafik-pracy-api-token-v1';
 
 async function token(){return AsyncStorage.getItem(API_TOKEN_KEY);}
 export async function api(path, {method = 'GET', body, headers = {}} = {}) {
-  if (!API_BASE_URL) {
-    const error = new Error('Brak EXPO_PUBLIC_API_URL. Aplikacja nie ma skonfigurowanego centralnego API.');
-    error.code = 'MISSING_API_URL';
+  if (!API_URL_VALID) {
+    const error = new Error('Nieprawidłowe EXPO_PUBLIC_API_URL. Ustaw sam adres serwera, np. https://example.com lub http://192.168.1.10:8787, bez końcowego /api.');
+    error.code = API_URL_CONFIG ? 'INVALID_API_URL' : 'MISSING_API_URL';
     error.apiBase = API_BASE_URL;
     error.expoPublicApiUrl = process.env.EXPO_PUBLIC_API_URL || '';
     console.log('[API_DEBUG]', {url: path, apiBase: API_BASE_URL, expoPublicApiUrl: error.expoPublicApiUrl, code: error.code, message: error.message});
@@ -19,7 +31,8 @@ export async function api(path, {method = 'GET', body, headers = {}} = {}) {
   const t = await token();
   const h = {'Content-Type': 'application/json', ...headers};
   if (t) h.Authorization = 'Bearer ' + t;
-  const url = API_BASE_URL + path;
+  const normalizedPath = '/' + String(path || '').replace(/^\\/+/, '').replace(/^api\\//i, '');
+  const url = API_BASE_URL + normalizedPath;
   const controller = new AbortController();
   let timeoutId = null;
 
@@ -78,7 +91,7 @@ export async function apiMe(){return (await api('/me')).user;}
 export async function apiGetGps(){return (await api('/gps/vehicles')).vehicles;}
 export async function apiGetMyGps(){return (await api('/gps/mine')).vehicle;}
 export async function apiPostGps(payload,deviceToken){
-  if(!API_BASE_URL)throw new Error('Brak centralnego API.');
+  if(!API_URL_VALID)throw new Error('Nieprawidłowe EXPO_PUBLIC_API_URL. Ustaw adres serwera bez końcowego /api.');
   const controller=new AbortController();
   let timeoutId;
   try{
