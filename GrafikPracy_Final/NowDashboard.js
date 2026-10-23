@@ -39,8 +39,9 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
  const [location,setLocation]=useState(null);
  const [locationError,setLocationError]=useState('');
  const [locationAddress,setLocationAddress]=useState('Ustalanie adresu…');
- const miniMapRef=useRef(null),miniMapLoaded=useRef(false);
+ const miniMapRef=useRef(null),miniMapLoaded=useRef(false),miniMapSizeRef=useRef({width:0,height:0});
  const syncMiniMap=()=>{const lat=Number(location?.latitude),lon=Number(location?.longitude);if(!miniMapLoaded.current||!miniMapRef.current||!Number.isFinite(lat)||!Number.isFinite(lon))return;miniMapRef.current.injectJavaScript('window.setGpsPoint('+lat+','+lon+'); true;');};
+ const resizeMiniMap=()=>{const {width,height}=miniMapSizeRef.current;if(!miniMapLoaded.current||!miniMapRef.current||width<=0||height<=0)return;miniMapRef.current.injectJavaScript('window.setNativeMapSize('+width+','+height+'); true;');};
  useEffect(()=>{syncMiniMap();},[location?.latitude,location?.longitude]);
  useSecondTicker(1000);
  const gpsRefreshTick=useSecondTicker(10000);
@@ -136,7 +137,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    <View style={S.locationCard}>
      <Text style={S.locationStatus}>{location?(locationError?'🟠 '+locationError:(Number(location.speed||0)*3.6>5?'🚚 AUTO W RUCHU':'🅿️ AUTO NA POSTOJU')):'🔴 BRAK LOKALIZACJI'}</Text>
      {location&&<><Text style={S.locationCoords}>{locationAddress}</Text><Text style={S.locationMeta}>{Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)} · Aktualizacja {new Date(serverMillis(location.updatedAt)).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})} · ±{Math.round(Number(location.accuracy||0))} m</Text></>}
-     <View style={S.miniMap}>{location?(Platform.OS==='web'?<iframe title="mini-mapa-lokalizacji" style={{width:'100%',height:'100%',border:0,display:'block'}} src={mapUrl(location)}/>:<WebView ref={miniMapRef} key="gps-mini-map" originWhitelist={['*']} mixedContentMode="compatibility" source={{html:miniMapHtml,baseUrl:'https://api.maptiler.com/'}} javaScriptEnabled domStorageEnabled setSupportMultipleWindows={false} androidLayerType="software" onLoadStart={()=>{miniMapLoaded.current=false;}} onLoadEnd={()=>{miniMapLoaded.current=true;syncMiniMap();}} onError={()=>{miniMapLoaded.current=false;}} style={{flex:1,width:'100%',backgroundColor:'#0d121b'}}/>):<Text style={S.locationEmpty}>Mapa pojawi się po odebraniu pozycji GPS.</Text>}</View>
+     <View style={S.miniMap}>{location?(Platform.OS==='web'?<iframe title="mini-mapa-lokalizacji" style={{width:'100%',height:'100%',border:0,display:'block'}} src={mapUrl(location)}/>:<WebView ref={miniMapRef} key="gps-mini-map" originWhitelist={['*']} mixedContentMode="compatibility" source={{html:miniMapHtml,baseUrl:'https://api.maptiler.com/'}} javaScriptEnabled domStorageEnabled setSupportMultipleWindows={false} androidLayerType="software" onLayout={event=>{const {width,height}=event.nativeEvent.layout;miniMapSizeRef.current={width,height};resizeMiniMap();}} onLoadStart={()=>{miniMapLoaded.current=false;}} onLoadEnd={()=>{miniMapLoaded.current=true;resizeMiniMap();syncMiniMap();}} onError={()=>{miniMapLoaded.current=false;}} style={{flex:1,width:'100%',backgroundColor:'#0d121b'}}/>):<Text style={S.locationEmpty}>Mapa pojawi się po odebraniu pozycji GPS.</Text>}</View>
      {location&&<TouchableOpacity accessibilityRole="button" accessibilityLabel="Otwórz aktualną pozycję na mapie" onPress={openMap} style={S.openMapButton}><Text style={S.openMapButtonText}>🗺️ OTWÓRZ MAPĘ NA ŻYWO</Text></TouchableOpacity>}
    </View>
  </ScrollView>;
