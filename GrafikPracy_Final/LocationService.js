@@ -10,7 +10,7 @@ export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
 export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
 export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
 const LOCATION_OPTIONS_VERSION=4;
-const STALE_THRESHOLD_MS = 2.5 * 60 * 1000; // 2.5 minuty
+const STALE_THRESHOLD_MS = 150000; // 150 s bez punktu lub wysyłki
 const LOCATION_PENDING_QUEUE_KEY = 'grafik-pracy-location-pending-queue-v1';
 const MAX_PENDING_GPS_POINTS = 250;
 const MAX_GPS_QUEUE_FLUSH_PER_PASS = 20;
@@ -243,8 +243,9 @@ export async function ensureVehicleLocationTracking() {
   }
 
   if (!assignment?.vehicleId) {
+    // Brak odpowiedzi/przypisania z backendu nie może samoczynnie wyłączyć
+    // lokalnego trackingu ani skasować ostatniej znanej pozycji.
     await patchDiagnostics({ lastEnsureError: 'device-not-assigned', lastEnsureErrorAt: Date.now() });
-    await stopVehicleLocationTracking();
     return { ok: false, reason: 'device-not-assigned' };
   }
 
@@ -259,18 +260,14 @@ export async function ensureVehicleLocationTracking() {
 
   const diagnostics = await getLocationDiagnostics();
   const now = Date.now();
-  if (!Number(diagnostics.lastTrackingStartedAt || 0)) {
-    diagnostics.lastTrackingStartedAt = now;
-    await patchDiagnostics({ lastTrackingStartedAt: now });
-  }
-  const trackingSince = Number(diagnostics.lastTrackingStartedAt || now);
+  const lastTrackingStartedAt = Number(diagnostics.lastTrackingStartedAt || 0);
   const lastTaskAt = Number(diagnostics.lastTaskAt || 0);
-  const lastUploadAt = Number(diagnostics.lastUploadAt || 0);
-  // Check local fixes and server uploads independently; a fresh local fix
-  // must not mask a broken upload path to the second device.
-  const taskStale = lastTaskAt > 0 ? now - lastTaskAt > STALE_THRESHOLD_MS : now - trackingSince > STALE_THRESHOLD_MS;
   const lastLiveUploadAt = Number(diagnostics.lastLiveUploadAt || 0);
-  const uploadStale = lastLiveUploadAt > 0 ? now - lastLiveUploadAt > STALE_THRESHOLD_MS : now - trackingSince > STALE_THRESHOLD_MS;
+  const trackingReferenceAt = lastTrackingStartedAt || now;
+  // Brak punktów lokalnych i brak udanych uploadów są niezależnymi oznakami
+  // zawieszenia tasku. Nie zmieniamy enabled przy chwilowych błędach API.
+  const taskStale = now - (lastTaskAt || trackingReferenceAt) > STALE_THRESHOLD_MS;
+  const uploadStale = now - (lastLiveUploadAt || trackingReferenceAt) > STALE_THRESHOLD_MS;
   const isStale = taskStale || uploadStale;
   const recoveryCooldown = now - Number(diagnostics.lastRecoveryAt || 0) < 60 * 1000;
   const restartForStale = isStale && !recoveryCooldown;
@@ -278,8 +275,9 @@ export async function ensureVehicleLocationTracking() {
   let running = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   let restarted = false;
   const optionsChanged = Number(cfg.optionsVersion || 0) !== LOCATION_OPTIONS_VERSION;
+  const shouldRestart = optionsChanged || restartForStale;
 
-  if (running && (optionsChanged || restartForStale)) {
+  if (running && shouldRestart) {
     try {
       await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
     } catch (e) {
@@ -288,13 +286,18 @@ export async function ensureVehicleLocationTracking() {
         lastRestartStopErrorAt: Date.now(),
       });
     }
+    // Android niektórym urządzeniom potrzebuje krótkiej przerwy między usługami.
+    await new Promise(resolve => setTimeout(resolve, 400));
     running = false;
   }
 
   if (!running) {
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, LOCATION_OPTIONS);
     restarted = true;
-    await patchDiagnostics({ lastRecoveryAt: Date.now(), lastTrackingStartedAt: Date.now() });
+    await patchDiagnostics({
+      lastRecoveryAt: Date.now(),
+      lastTrackingStartedAt: Date.now(),
+    });
   }
 
   // Zapisz bieżące przypisanie i wersję opcji niezależnie od tego, czy task już działał.
