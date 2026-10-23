@@ -1,13 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_ORIGIN=String(process.env.EXPO_PUBLIC_API_URL||'').trim().replace(/\/+$/,'').replace(/\/api$/i,'');
-// The central Express API mounts all routes under /api (including /api/auth/login).
-export const API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : '';
+const API_URL_CONFIG=String(process.env.EXPO_PUBLIC_API_URL||'').trim().replace(/\/+$/,'');
+const API_ORIGIN=API_URL_CONFIG.replace(/\/api$/i,'').replace(/\/+$/,'');
+const API_URL_VALID=(()=>{if(!API_ORIGIN)return false;try{const u=new URL(API_ORIGIN);return (u.protocol==='https:'||u.protocol==='http:')&&!!u.host&&!/\/api$/i.test(u.pathname);}catch{return false;}})();
+// EXPO_PUBLIC_API_URL is an origin only, for example https://example.com. Never append /api twice.
+export const API_BASE_URL=API_URL_VALID ? API_ORIGIN+'/api' : '';
 export const API_TOKEN_KEY='grafik-pracy-api-token-v1';
 
 async function token(){return AsyncStorage.getItem(API_TOKEN_KEY);}
 export async function api(path,{method='GET',body,headers={}}={}){
-  if(!API_BASE_URL)throw new Error('Brak EXPO_PUBLIC_API_URL. Aplikacja nie ma skonfigurowanego centralnego API.');
+  if(!API_BASE_URL)throw new Error('Nieprawidłowe EXPO_PUBLIC_API_URL. Ustaw adres serwera jako origin, np. https://example.com lub http://192.168.1.10:8787, bez ścieżki /api.');
 
   const controller=new AbortController();
   let timeoutId;
@@ -63,7 +65,7 @@ export async function apiMe(){return (await api('/me')).user;}
 export async function apiGetGps(){return (await api('/gps/vehicles')).vehicles;}
 export async function apiGetMyGps(){return (await api('/gps/mine')).vehicle;}
 export async function apiPostGps(payload,deviceToken){
-  if(!API_BASE_URL)throw new Error('Brak centralnego API.');
+  if(!API_BASE_URL)throw new Error('Nieprawidłowe EXPO_PUBLIC_API_URL. Podaj adres serwera bez końcowego /api.');
   const controller=new AbortController();
   let timeoutId;
   try{
