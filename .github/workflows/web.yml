@@ -78,7 +78,6 @@ jobs:
           retention-days: 14
 
       - name: Prepare Firebase Hosting configuration
-        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
         working-directory: .
         run: |
           cat > firebase.json <<'EOF'
