@@ -33,7 +33,7 @@ export async function api(path,{method='GET',body,headers={}}={}){
         const t=await token();
         const h={'Content-Type':'application/json',...headers};
         if(t)h.Authorization='Bearer '+t;
-        const normalizedPath='/' + String(path||'').replace(/^\\/+/, '').replace(/^api\\//i, '');
+        const normalizedPath='/' + String(path||'').replace(/^\/+/, '').replace(/^api\//i, '');
         const r=await fetch(API_BASE_URL+normalizedPath,{
           method,
           headers:h,
