@@ -9,7 +9,7 @@ export const LOCATION_CONFIG_KEY='grafik-pracy-location-config-v2';
 export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
 export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
 export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
-const LOCATION_OPTIONS_VERSION=3;
+const LOCATION_OPTIONS_VERSION=4;
 const STALE_THRESHOLD_MS = 2.5 * 60 * 1000; // 2.5 minuty
 const LOCATION_PENDING_QUEUE_KEY = 'grafik-pracy-location-pending-queue-v1';
 const MAX_PENDING_GPS_POINTS = 250;
@@ -68,9 +68,18 @@ const getDeviceAssignment=async token=>{
   if(!API_BASE_URL||!token)throw new Error('GPS_DEVICE_CONFIGURATION_MISSING');
   let response;
   try{
-    response=await fetch(API_BASE_URL+'/gps/device',{headers:{'X-Device-Token':token}});
+    const controller=new AbortController();
+    let timeoutId;
+    try{
+      response=await Promise.race([
+        fetch(API_BASE_URL+'/gps/device',{headers:{'X-Device-Token':token},signal:controller.signal}),
+        new Promise((_,reject)=>{timeoutId=setTimeout(()=>{controller.abort();reject(new Error('GPS_ASSIGNMENT_TIMEOUT'));},8000);})
+      ]);
+    }finally{
+      if(timeoutId!==undefined)clearTimeout(timeoutId);
+    }
   }catch(error){
-    // Błąd sieci/API nie jest dowodem, że urządzenie utraciło przypisanie.
+    // Błąd sieci/API lub timeout nie jest dowodem, że urządzenie utraciło przypisanie.
     // Nie wolno z jego powodu zatrzymywać działającego foreground service.
     throw new Error('GPS_ASSIGNMENT_NETWORK_ERROR: '+String(error?.message||error));
   }
@@ -84,8 +93,8 @@ const getDeviceAssignment=async token=>{
 
 const LOCATION_OPTIONS={
   accuracy:Location.Accuracy.High,
-  timeInterval:10000,
-  distanceInterval:0,
+  timeInterval:5000,
+  distanceInterval:5,
   deferredUpdatesInterval:0,
   deferredUpdatesDistance:0,
   pausesUpdatesAutomatically:false,
