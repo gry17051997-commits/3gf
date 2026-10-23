@@ -93,8 +93,8 @@ const getDeviceAssignment=async token=>{
 
 const LOCATION_OPTIONS={
   accuracy:Location.Accuracy.High,
-  timeInterval:5000,
-  distanceInterval:5,
+  timeInterval:10000,
+  distanceInterval:10,
   deferredUpdatesInterval:0,
   deferredUpdatesDistance:0,
   pausesUpdatesAutomatically:false,
