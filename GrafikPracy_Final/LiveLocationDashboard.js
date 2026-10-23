@@ -4,7 +4,7 @@ import {api,apiGetGps} from './apiClient';
 import {WebView} from 'react-native-webview';
 import TripHistoryPanel from './TripHistoryPanel';
 import useSecondTicker from './hooks/useSecondTicker';
-const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
+const MAPTILER_KEY = process.env.EXPO_PUBLIC_USE_MAPTILER === 'true' ? (process.env.EXPO_PUBLIC_MAPTILER_KEY || '') : '';
 const normalizeVehicleId=value=>String(value||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40);
 
 const serverMillis=v=>{if(typeof v==='number')return v;if(typeof v==='string')return Date.parse(v)||0;if(typeof v?.toMillis==='function')return v.toMillis();return 0;};

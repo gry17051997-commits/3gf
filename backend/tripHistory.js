@@ -1,4 +1,4 @@
-const TRIP_GAP_MS = 20 * 60 * 1000;
+const TRIP_GAP_MS = 30 * 60 * 1000;
 const MAX_SEGMENT_GAP_MS = 2 * 60 * 1000;
 const MIN_MOVING_SPEED_KMH = 5;
 
@@ -118,7 +118,7 @@ function summarizeTrip(rows, vehicleId, includePoints) {
  * A trip is split after a long telemetry gap; point IDs make its ID stable
  * across requests and do not require a new database migration.
  */
-export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs = TRIP_GAP_MS, stationarySplitMs = 10 * 60 * 1000 } = {}) {
+export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs = TRIP_GAP_MS, stationarySplitMs = 12 * 60 * 1000 } = {}) {
   const valid = (Array.isArray(rows) ? rows : [])
     .filter(row => row && row.id != null && asMillis(row.observed_at) != null
       && Number.isFinite(Number(row.latitude)) && Number.isFinite(Number(row.longitude)))

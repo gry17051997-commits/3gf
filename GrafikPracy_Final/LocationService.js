@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
-import {Platform, AppState} from 'react-native';
+import {Platform} from 'react-native';
 import {API_BASE_URL, apiPostGps} from './apiClient';
 
 export const LOCATION_TASK_NAME='grafik-pracy-vehicle-location-v2';
@@ -188,7 +188,6 @@ export async function saveVehicleLocationAssignment(registration){
 
 export async function startVehicleLocationTracking({vehicleId,registration}={}){
   if(Platform.OS==='web')return {ok:false,reason:'web'};
-  if(AppState.currentState!=='active')return {ok:false,reason:'app-not-active'};
   if(!API_BASE_URL)return {ok:false,reason:'api-not-configured'};
   const token=await getLocationDeviceToken();
   if(!token)return {ok:false,reason:'device-token-missing'};
