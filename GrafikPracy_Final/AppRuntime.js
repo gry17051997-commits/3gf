@@ -483,8 +483,15 @@ export default function App() {
     const sub = AppState.addEventListener('change', state => {
       if (state === 'active') refresh();
     });
+    // While the app is foregrounded, periodically verify the native task and
+    // recover it if Android stopped delivering fixes. Background collection
+    // itself remains owned by Expo Location's native task.
+    const recoveryTimer = setInterval(() => {
+      if (AppState.currentState === 'active') refresh();
+    }, 60000);
     return () => {
       mounted = false;
+      clearInterval(recoveryTimer);
       sub?.remove?.();
     };
   }, [ready, cloudRole]);
