@@ -41,7 +41,7 @@ export default function LiveLocationDashboard({vehicleRegistration='',warehouseG
  const [location,setLocation]=useState(null),[history,setHistory]=useState([]),[locationError,setLocationError]=useState(''),[locationAddress,setLocationAddress]=useState('Ustalanie adresu…'),[selectedPoint,setSelectedPoint]=useState(null);
  const nativeMapRef=useRef(null),nativeMapLoaded=useRef(false),nativeMapSizeRef=useRef({width:0,height:0}),userInteractedRef=useRef(false);
  const mapData=useMemo(()=>buildLiveMapData(location,history),[location,history]);
- const syncNativeMap=()=>{if(!nativeMapLoaded.current||!nativeMapRef.current)return;const payload=JSON.stringify(mapData).replace(/</g,'\\u003c');const interacted=userInteractedRef.current?'true':'false';nativeMapRef.current.injectJavaScript('if(window.setUserInteracted){window.setUserInteracted('+interacted+');}if(window.updateMapData){window.updateMapData('+JSON.stringify(payload)+');} true;');};
+ const syncNativeMap=()=>{if(!nativeMapLoaded.current||!nativeMapRef.current)return;const payload=JSON.stringify(mapData).replace(/</g,'\\u003c');if(userInteractedRef.current)nativeMapRef.current.injectJavaScript('if(window.setUserInteracted){window.setUserInteracted(true);} true;');nativeMapRef.current.injectJavaScript('window.updateMapData('+JSON.stringify(payload)+'); true;');};
  const resizeNativeMap=()=>{const {width,height}=nativeMapSizeRef.current;if(!nativeMapLoaded.current||!nativeMapRef.current||width<=0||height<=0)return;nativeMapRef.current.injectJavaScript('window.setNativeMapSize('+width+','+height+'); true;');};
  useEffect(()=>{syncNativeMap();},[mapData]);
  const refreshTick=useSecondTicker(10000);
