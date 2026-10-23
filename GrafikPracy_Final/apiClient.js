@@ -85,6 +85,7 @@ export async function api(path, {method = 'GET', body, headers = {}} = {}) {
     if (timeoutId) clearTimeout(timeoutId);
   }
 }
+export async function apiHealth(){ return api('/health'); }
 export async function apiLogin(email,password){const data=await api('/auth/login',{method:'POST',body:{email,password}});await AsyncStorage.setItem(API_TOKEN_KEY,data.token);return data.user;}
 export async function apiLogout(){try{await api('/auth/logout',{method:'POST'});}finally{await AsyncStorage.removeItem(API_TOKEN_KEY);}}
 export async function apiMe(){return (await api('/me')).user;}
