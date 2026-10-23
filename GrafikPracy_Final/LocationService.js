@@ -73,7 +73,7 @@ const getDeviceAssignment=async token=>{
     try{
       response=await Promise.race([
         fetch(API_BASE_URL+'/gps/device',{headers:{'X-Device-Token':token},signal:controller.signal}),
-        new Promise((_,reject)=>{timeoutId=setTimeout(()=>{controller.abort();reject(new Error('GPS_ASSIGNMENT_TIMEOUT'));},8000);})
+        new Promise((_,reject)=>{timeoutId=setTimeout(()=>{controller.abort();reject(new Error('GPS_ASSIGNMENT_TIMEOUT'));},30000);})
       ]);
     }finally{
       if(timeoutId!==undefined)clearTimeout(timeoutId);
