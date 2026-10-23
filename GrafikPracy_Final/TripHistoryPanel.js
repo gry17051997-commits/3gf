@@ -6,35 +6,6 @@ import {apiGetGpsTrips, apiGetGpsTrip} from './apiClient';
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
 
 const paletteTripColor = id => ['#2d7cff','#f97316','#a855f7','#14b8a6','#eab308','#ec4899','#22c55e','#ef4444'][[...String(id)].reduce((sum,ch)=>sum+ch.charCodeAt(0),0)%8];
-const matchTripToRoads = async points => {
-  const valid = (points || []).filter(p => Number.isFinite(Number(p.latitude)) && Number.isFinite(Number(p.longitude)) && Number.isFinite(Date.parse(p.observedAt)));
-  if (valid.length < 2) return [];
-  const distance = (a,b) => { const rad=v=>v*Math.PI/180, p1=rad(Number(a.latitude)), p2=rad(Number(b.latitude)), dp=rad(Number(b.latitude)-Number(a.latitude)), dl=rad(Number(b.longitude)-Number(a.longitude)), h=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2; return 6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h))); };
-  const continuous=[]; let current=[];
-  for (const point of valid) { const prev=current[current.length-1]; if(prev&&(Date.parse(point.observedAt)-Date.parse(prev.observedAt)<=0||Date.parse(point.observedAt)-Date.parse(prev.observedAt)>60000||distance(prev,point)>2000)){if(current.length>1)continuous.push(current);current=[];} current.push(point); }
-  if(current.length>1)continuous.push(current);
-  const output=[];
-  for(const segment of continuous){
-    for(let start=0;start<segment.length-1;start+=79){
-      const chunk=segment.slice(start,Math.min(start+80,segment.length)); if(chunk.length<2)continue;
-      const coords=chunk.map(p=>Number(p.longitude)+','+Number(p.latitude)).join(';');
-      const timestamps=chunk.map(p=>Math.floor(Date.parse(p.observedAt)/1000)).join(';');
-      const radiuses=chunk.map(p=>Math.min(100,Math.max(5,Number(p.accuracy)||25))).join(';');
-      const url='https://router.project-osrm.org/match/v1/driving/'+coords+'?geometries=geojson&overview=full&timestamps='+timestamps+'&radiuses='+radiuses+'&gaps=split&tidy=true';
-      const controller=new AbortController(); let timeoutId;
-      let response;
-      try {
-        const timeout=new Promise((_,reject)=>{timeoutId=setTimeout(()=>{controller.abort();reject(new Error('OSRM_TIMEOUT'));},12000);});
-        response=await Promise.race([fetch(url,{headers:{Accept:'application/json'},signal:controller.signal}),timeout]);
-      } finally { if(timeoutId)clearTimeout(timeoutId); }
-      if(!response.ok)throw new Error('OSRM_HTTP_'+response.status);
-      const data=await response.json(); if(data.code!=='Ok'||!Array.isArray(data.matchings))continue;
-      for(const matching of data.matchings){const line=matching?.geometry?.coordinates;if(Array.isArray(line)&&line.length>1)output.push(line.map(([lon,lat])=>[Number(lat),Number(lon)]));}
-      if(start+80>=segment.length)break;
-    }
-  }
-  return output;
-};
 const fmtDuration = seconds => {
   const s = Math.max(0, Number(seconds) || 0);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
@@ -88,10 +59,8 @@ export default function TripHistoryPanel({vehicleId}) {
   };
   const openTrip = async trip => {
     try {
-      setLoading(true); setError(''); setMatchedSegments([]); setMatchingStatus('Dopasowuję ślad GPS do dróg…');
+      setLoading(true); setError(''); setMatchedSegments([]); setMatchingStatus('Ślad pokazuje zapisane punkty GPS, bez zewnętrznego routingu.');
       const detail = await apiGetGpsTrip(vehicleId, trip.id); setSelected(detail);
-      try { const matched = await matchTripToRoads(detail.points || []); if(matched.length){setMatchedSegments(matched);setMatchingStatus('Ślad dopasowany do dróg przez publiczny OSRM.');}else setMatchingStatus('OSRM nie dopasował śladu — pokazuję oryginalne punkty GPS.'); }
-      catch { setMatchingStatus('Dopasowanie niedostępne — pokazuję oryginalne punkty GPS.'); }
     } catch (e) { setError(String(e?.message || 'Nie udało się otworzyć trasy')); }
     finally { setLoading(false); }
   };
