@@ -2,6 +2,12 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "GrafikPracy_Final/**"
+      - ".github/workflows/build-apk.yml"
   push:
     branches:
       - main
@@ -51,10 +57,13 @@ jobs:
           test -n "$EXPO_PUBLIC_API_URL"
           echo "Central API URL configured."
 
-      - name: Verify MapTiler key
+      - name: Configure optional map fallback
         run: |
-          test -n "$EXPO_PUBLIC_MAPTILER_KEY"
-          echo "MapTiler key configured."
+          if [ -n "$EXPO_PUBLIC_MAPTILER_KEY" ]; then
+            echo "Optional MapTiler fallback configured."
+          else
+            echo "MapTiler key absent; OpenStreetMap remains the default source."
+          fi
 
       - name: Apply deterministic build fixes
         run: |
