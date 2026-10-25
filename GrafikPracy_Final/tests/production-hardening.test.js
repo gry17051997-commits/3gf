@@ -344,7 +344,11 @@ test('web startup does not call native-only notification or background-task setu
 test('central API client prefixes every endpoint with the backend /api mount', () => {
   const client = fs.readFileSync(new URL('../apiClient.js', import.meta.url), 'utf8');
   const server = fs.readFileSync(new URL('../../backend/server.js', import.meta.url), 'utf8');
-  assert.ok(client.includes("API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : ''"));
+  assert.ok(client.includes("API_BASE_URL=API_URL_VALID ? API_ORIGIN+'/api' : ''"));
+  assert.ok(client.includes("const API_URL_CONFIG=String(process.env.EXPO_PUBLIC_API_URL||'').trim().replace(/\\/+$/,'')"));
+  assert.ok(client.includes("const API_ORIGIN=API_URL_CONFIG.replace(/\\/api$/i,'').replace(/\\/+$/,'')"));
+  assert.ok(client.includes("const API_URL_VALID=(()=>{if(!API_ORIGIN)return false;try{const u=new URL(API_ORIGIN);"));
+  assert.ok(client.includes("u.pathname==='/'&&!u.search&&!u.hash"));
   assert.ok(client.includes("api('/auth/login'"));
   assert.ok(server.includes("app.post('/api/auth/login'"));
 });
