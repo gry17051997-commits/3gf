@@ -40,7 +40,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
  const [locationError,setLocationError]=useState('');
  const [locationAddress,setLocationAddress]=useState('Ustalanie adresu…');
  const miniMapRef=useRef(null),miniMapLoaded=useRef(false),miniMapSizeRef=useRef({width:0,height:0});
- const syncMiniMap=()=>{const rawLat=location?.latitude,rawLon=location?.longitude;if(rawLat==null||rawLon==null||rawLat===''||rawLon===''||!miniMapLoaded.current||!miniMapRef.current)return;const lat=Number(rawLat),lon=Number(rawLon);if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return;miniMapRef.current.injectJavaScript('window.setGpsPoint('+lat+','+lon+'); true;');};
+ const syncMiniMap=()=>{const rawLat=location?.latitude,rawLon=location?.longitude;if(rawLat==null||rawLon==null||(typeof rawLat==='string'&&rawLat.trim()==='')||(typeof rawLon==='string'&&rawLon.trim()==='')||!miniMapLoaded.current||!miniMapRef.current)return;const lat=Number(rawLat),lon=Number(rawLon);if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return;miniMapRef.current.injectJavaScript('window.setGpsPoint('+lat+','+lon+'); true;');};
  const resizeMiniMap=()=>{const {width,height}=miniMapSizeRef.current;if(!miniMapLoaded.current||!miniMapRef.current||width<=0||height<=0)return;miniMapRef.current.injectJavaScript('window.setNativeMapSize('+width+','+height+'); true;');};
  useEffect(()=>{syncMiniMap();},[location?.latitude,location?.longitude]);
  useSecondTicker(1000);
@@ -53,7 +53,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
          const selected=await (await import('./apiClient')).apiGetMyGps();
          if(cancelled)return;
          if(!selected){setLocation(null);setLocationError('Brak przypisanego auta lub brak odebranej pozycji GPS.');return;}
-         if(selected.latitude==null||selected.longitude==null||selected.latitude===''||selected.longitude===''||!Number.isFinite(Number(selected.latitude))||!Number.isFinite(Number(selected.longitude))||Math.abs(Number(selected.latitude))>90||Math.abs(Number(selected.longitude))>180){setLocationError('Pojazd jest przypisany, ale API nie zwróciło prawidłowych współrzędnych GPS. Zachowuję ostatnią znaną pozycję.');return;}
+         if(selected.latitude==null||selected.longitude==null||(typeof selected.latitude==='string'&&selected.latitude.trim()==='')||(typeof selected.longitude==='string'&&selected.longitude.trim()==='')||!Number.isFinite(Number(selected.latitude))||!Number.isFinite(Number(selected.longitude))||Math.abs(Number(selected.latitude))>90||Math.abs(Number(selected.longitude))>180){setLocationError('Pojazd jest przypisany, ale API nie zwróciło prawidłowych współrzędnych GPS. Zachowuję ostatnią znaną pozycję.');return;}
          const point={...selected,updatedAt:selected.observed_at};
          setLocation(point);
          const observed=serverMillis(point.updatedAt);
@@ -65,7 +65,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
        const requested=idFor(vehicleRegistration);
        const selected=rows.filter(x=>requested? idFor(x.registration||x.id)===requested:true).sort((x,y)=>serverMillis(y.observed_at)-serverMillis(x.observed_at))[0]||null;
        if(!selected){setLocationError('API nie zwróciło lokalizacji. Zachowuję ostatnią znaną pozycję.');return;}
-       if(selected.latitude==null||selected.longitude==null||selected.latitude===''||selected.longitude===''||!Number.isFinite(Number(selected.latitude))||!Number.isFinite(Number(selected.longitude))||Math.abs(Number(selected.latitude))>90||Math.abs(Number(selected.longitude))>180){setLocationError('API zwróciło pojazd bez prawidłowych współrzędnych GPS. Zachowuję ostatnią znaną pozycję.');return;}
+       if(selected.latitude==null||selected.longitude==null||(typeof selected.latitude==='string'&&selected.latitude.trim()==='')||(typeof selected.longitude==='string'&&selected.longitude.trim()==='')||!Number.isFinite(Number(selected.latitude))||!Number.isFinite(Number(selected.longitude))||Math.abs(Number(selected.latitude))>90||Math.abs(Number(selected.longitude))>180){setLocationError('API zwróciło pojazd bez prawidłowych współrzędnych GPS. Zachowuję ostatnią znaną pozycję.');return;}
        const point={...selected,updatedAt:selected.observed_at};
        setLocation(point);
        setLocationError(Date.now()-serverMillis(point.updatedAt)>180000?'Lokalizacja nieaktualna':'');
