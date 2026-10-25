@@ -98,7 +98,7 @@ export default function TripHistoryPanel({vehicleId}) {
               <Text style={sub}>{new Date(selected.startedAt).toLocaleString('pl-PL')} do {new Date(selected.endedAt).toLocaleString('pl-PL')}</Text>
               <Text style={sub}>Dystans: {selected.distanceKm} km · czas całkowity: {fmtDuration(selected.durationSeconds)}</Text>
               <Text style={sub}>{matchingStatus || 'Mapa przejazdu'}</Text>
-              {!(Array.isArray(selected.points) && selected.points.some(point => coordinateIsValid(point?.latitude) && coordinateIsValid(point?.longitude) && Math.abs(Number(point.latitude))<=90 && Math.abs(Number(point.longitude))<=180)) ? <Text style={[sub,{color:'#f0b35a'}]}>Brak poprawnych punktów GPS dla tego przejazdu. Szczegóły przejazdu są dostępne, ale nie ma śladu do narysowania.</Text> : null}
+              {cleanGpsPoints(selected.points).length < 2 ? <Text style={[sub,{color:'#f0b35a'}]}>Brak poprawnych punktów GPS dla tego przejazdu. Szczegóły przejazdu są dostępne, ale nie ma śladu do narysowania.</Text> : null}
               <Text style={sub}>Czas jazdy: {fmtDuration(selected.drivingSeconds)} · postoje: {selected.stops?.length || 0}</Text>
               <Text style={sub}>Średnia podczas jazdy: {selected.averageSpeedKmh} km/h</Text>
               <Text style={sub}>Średnia z postojami: {selected.averageIncludingStopsKmh} km/h · maksymalna: {selected.maxSpeedKmh} km/h</Text>
