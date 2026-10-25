@@ -159,15 +159,40 @@ export function onSnapshot(target,options,callback,errorCallback){
 }
 export async function runTransaction(_db,fn){const pending=[];const tx={get:getDoc,update:(r,d)=>{const p=updateDoc(r,d);pending.push(p);return p;},set:(r,d)=>{const p=setDoc(r,d);pending.push(p);return p;}};const result=await fn(tx);await Promise.all(pending);return result;}
 
+const unwrapGpsResponse = response => {
+  let value = response;
+  for (let i = 0; i < 3 && value && typeof value === 'object' && !Array.isArray(value); i++) {
+    if (value.trips !== undefined || value.trip !== undefined) return value;
+    if (value.data !== undefined) { value = value.data; continue; }
+    break;
+  }
+  return value;
+};
 const normalizeGpsTripsResponse = response => {
-  if (Array.isArray(response)) return response;
-  if (Array.isArray(response?.trips)) return response.trips;
-  if (Array.isArray(response?.data?.trips)) return response.data.trips;
-  if (response == null || response?.trips == null || response?.data?.trips == null) return [];
-  return [];
+  const value = unwrapGpsResponse(response);
+  const rows = Array.isArray(value) ? value : Array.isArray(value?.trips) ? value.trips : null;
+  if (!rows) return [];
+  return rows.filter(row => row && typeof row === 'object' && !Array.isArray(row))
+    .map(row => {
+      const id = row.id ?? row.tripId ?? row.trip_id;
+      const startedAt = row.startedAt ?? row.started_at;
+      const endedAt = row.endedAt ?? row.ended_at;
+      const distance = Number(row.distanceKm ?? row.distance_km ?? row.distance);
+      const duration = Number(row.durationSeconds ?? row.duration_seconds ?? row.duration);
+      return {
+        ...row,
+        id: id == null ? '' : String(id),
+        startedAt: startedAt ?? null,
+        endedAt: endedAt ?? startedAt ?? null,
+        distanceKm: Number.isFinite(distance) ? distance : 0,
+        durationSeconds: Number.isFinite(duration) && duration >= 0 ? duration : 0
+      };
+    })
+    .filter(row => row.id !== '');
 };
 const normalizeGpsTripResponse = response => {
-  const candidate = response?.trip ?? response?.data?.trip ?? response?.data ?? response;
+  const value = unwrapGpsResponse(response);
+  const candidate = value?.trip ?? value;
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
   const rawPoints = Array.isArray(candidate.points) ? candidate.points
     : Array.isArray(candidate.route) ? candidate.route
@@ -186,7 +211,17 @@ const normalizeGpsTripResponse = response => {
     return null;
   }).filter(point => point && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)
     && Math.abs(point.latitude) <= 90 && Math.abs(point.longitude) <= 180);
-  return { ...candidate, points };
+  const id = candidate.id ?? candidate.tripId ?? candidate.trip_id;
+  return {
+    ...candidate,
+    id: id == null ? '' : String(id),
+    distanceKm: Number.isFinite(Number(candidate.distanceKm ?? candidate.distance_km ?? candidate.distance))
+      ? Number(candidate.distanceKm ?? candidate.distance_km ?? candidate.distance) : 0,
+    durationSeconds: Number.isFinite(Number(candidate.durationSeconds ?? candidate.duration_seconds ?? candidate.duration))
+      && Number(candidate.durationSeconds ?? candidate.duration_seconds ?? candidate.duration) >= 0
+      ? Number(candidate.durationSeconds ?? candidate.duration_seconds ?? candidate.duration) : 0,
+    points
+  };
 };
 export async function apiGetGpsTrips(vehicleId) {
   if (vehicleId == null || String(vehicleId).trim() === '') return [];
