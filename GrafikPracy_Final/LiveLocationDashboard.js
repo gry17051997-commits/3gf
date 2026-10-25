@@ -13,7 +13,13 @@ const ageText=ts=>{const m=Math.max(0,Math.floor((Date.now()-serverMillis(ts))/6
 const geocodeAddress=async point=>{const lat=Number(point?.latitude),lon=Number(point?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;try{const res=await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='+encodeURIComponent(lat)+'&longitude='+encodeURIComponent(lon)+'&localityLanguage=pl',{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),locality=d.city||d.locality||d.principalSubdivision||'',road=d.localityInfo?.informative?.find(x=>/street|road|ulica|droga/i.test(x.description||''))?.name||'';const address=[locality,road].filter(Boolean).join(', ');if(address)return address;}}catch{}try{const res=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=pl&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon),{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),a=d?.address||{},locality=a.city||a.town||a.village||a.municipality||a.suburb||a.county||'',road=a.road||a.pedestrian||a.residential||a.highway||'',house=a.house_number||'',ref=a.ref||'';return [locality,ref&&ref!==road?ref:'',road+(house?' '+house:'')].filter(Boolean).join(', ')||d.name||null;}}catch{}return null;};
 const mapUrl=loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;const d=0.006;return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;};
 const buildLiveMapData=(current,rows)=>{
- const valid=(rows||[]).filter(p=>Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))&&serverMillis(p.updatedAt)>0).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
+ const valid=(Array.isArray(rows)?rows:[]).filter(p=>{
+   if(!p||!Number.isFinite(Number(p.latitude))||!Number.isFinite(Number(p.longitude))||serverMillis(p.updatedAt)<=0)return false;
+   const lat=Number(p.latitude),lon=Number(p.longitude);
+   if(Math.abs(lat)>90||Math.abs(lon)>180)return false;
+   const accuracy=p.accuracy==null||p.accuracy===''?null:Number(p.accuracy);
+   return accuracy==null||!Number.isFinite(accuracy)||accuracy<=100;
+ }).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
  const segments=[];let segment=[],previous=null;
  const flush=()=>{if(segment.length>1)segments.push(segment);segment=[];};
  for(const p of valid){
@@ -30,7 +36,9 @@ const buildLiveMapData=(current,rows)=>{
    previous=point;
  }
  flush();
- return {current:current?{lat:Number(current.latitude),lon:Number(current.longitude),speed:Number(current.speed||0),time:serverMillis(current.updatedAt)}:null,segments};
+ const currentLat=Number(current?.latitude),currentLon=Number(current?.longitude);
+ const currentValid=current&&Number.isFinite(currentLat)&&Number.isFinite(currentLon)&&Math.abs(currentLat)<=90&&Math.abs(currentLon)<=180;
+ return {current:currentValid?{lat:currentLat,lon:currentLon,speed:Number(current.speed||0),time:serverMillis(current.updatedAt)}:null,segments};
 };
 const buildLiveMapHtml=(current,rows,liveUpdates=false)=>{
  const initialData=JSON.stringify(liveUpdates?{current:null,segments:[]}:buildLiveMapData(current,rows)).replace(/</g,'\\u003c');
