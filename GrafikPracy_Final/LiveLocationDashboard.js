@@ -12,12 +12,45 @@ const distanceMeters=(a,b)=>{if(!a||!b)return Infinity;const R=6371000,p1=a.lati
 const ageText=ts=>{const m=Math.max(0,Math.floor((Date.now()-serverMillis(ts))/60000));if(m<1)return 'przed chwilą';if(m<60)return m+' min temu';return Math.floor(m/60)+' h '+m%60+' min temu';};
 const geocodeAddress=async point=>{const lat=Number(point?.latitude),lon=Number(point?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;try{const res=await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='+encodeURIComponent(lat)+'&longitude='+encodeURIComponent(lon)+'&localityLanguage=pl',{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),locality=d.city||d.locality||d.principalSubdivision||'',road=d.localityInfo?.informative?.find(x=>/street|road|ulica|droga/i.test(x.description||''))?.name||'';const address=[locality,road].filter(Boolean).join(', ');if(address)return address;}}catch{}try{const res=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=pl&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon),{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),a=d?.address||{},locality=a.city||a.town||a.village||a.municipality||a.suburb||a.county||'',road=a.road||a.pedestrian||a.residential||a.highway||'',house=a.house_number||'',ref=a.ref||'';return [locality,ref&&ref!==road?ref:'',road+(house?' '+house:'')].filter(Boolean).join(', ')||d.name||null;}}catch{}return null;};
 const mapUrl=loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;const d=0.006;return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;};
+const filterGpsPoints=rows=>{
+ const sorted=(rows||[]).filter(p=>{
+   const lat=Number(p?.latitude),lon=Number(p?.longitude),time=serverMillis(p?.updatedAt);
+   const accuracy=p?.accuracy==null?null:Number(p.accuracy);
+   return Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180&&time>0&&
+     (accuracy===null||(Number.isFinite(accuracy)&&accuracy<=40));
+ }).map(p=>({...p,latitude:Number(p.latitude),longitude:Number(p.longitude),time:serverMillis(p.updatedAt)}))
+   .sort((a,b)=>a.time-b.time);
+ const accepted=[];
+ for(const point of sorted){
+   const previous=accepted[accepted.length-1];
+   if(previous){
+     const timeDiff=point.time-previous.time;
+     if(timeDiff<=0)continue;
+     const distance=distanceMeters(previous,point);
+     if(distance>200&&timeDiff<5000)continue;
+     if(distance<8&&timeDiff<5000)continue;
+   }
+   accepted.push(point);
+ }
+ return accepted;
+};
+const smoothRoute=points=>{
+ if(points.length<3)return points;
+ return points.map((point,index)=>{
+   if(index===0||index===points.length-1)return point;
+   const previous=points[index-1],next=points[index+1];
+   const beforeGap=point.time-previous.time,afterGap=next.time-point.time;
+   if(beforeGap<=0||afterGap<=0||beforeGap>15*60*1000||afterGap>15*60*1000)return point;
+   if(distanceMeters(previous,point)>120||distanceMeters(point,next)>120)return point;
+   return {...point,latitude:(previous.latitude+point.latitude+next.latitude)/3,longitude:(previous.longitude+point.longitude+next.longitude)/3};
+ });
+};
 const buildLiveMapData=(current,rows)=>{
- const valid=(rows||[]).filter(p=>Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))&&serverMillis(p.updatedAt)>0).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
+ const valid=smoothRoute(filterGpsPoints(rows));
  const segments=[];let segment=[],previous=null;
  const flush=()=>{if(segment.length>1)segments.push(segment);segment=[];};
  for(const p of valid){
-   const point={latitude:Number(p.latitude),longitude:Number(p.longitude),speed:Number(p.speed||0),time:serverMillis(p.updatedAt)};
+   const point={latitude:p.latitude,longitude:p.longitude,speed:Number(p.speed||0),time:p.time};
    const moved=previous?distanceMeters(previous,point):0;
    const gap=previous?point.time-previous.time:0;
    const continuous=previous&&gap>0&&gap<=15*60*1000;
