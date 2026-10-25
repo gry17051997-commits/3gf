@@ -159,5 +159,28 @@ export function onSnapshot(target,options,callback,errorCallback){
 }
 export async function runTransaction(_db,fn){const pending=[];const tx={get:getDoc,update:(r,d)=>{const p=updateDoc(r,d);pending.push(p);return p;},set:(r,d)=>{const p=setDoc(r,d);pending.push(p);return p;}};const result=await fn(tx);await Promise.all(pending);return result;}
 
-export async function apiGetGpsTrips(vehicleId){return (await api('/gps/'+encodeURIComponent(vehicleId)+'/trips')).trips;}
-export async function apiGetGpsTrip(vehicleId,tripId){return (await api('/gps/'+encodeURIComponent(vehicleId)+'/trips/'+encodeURIComponent(tripId))).trip;}
+export async function apiGetGpsTrips(vehicleId){
+  const normalized=String(vehicleId??'').trim();
+  if(!normalized)return [];
+  try{
+    const data=await api('/gps/'+encodeURIComponent(normalized)+'/trips');
+    const trips=Array.isArray(data?.trips)?data.trips:Array.isArray(data)?data:[];
+    return trips.filter(trip=>trip&&typeof trip==='object');
+  }catch(error){
+    console.warn('[apiGetGpsTrips] fallback empty list',error);
+    return [];
+  }
+}
+export async function apiGetGpsTrip(vehicleId,tripId){
+  const normalizedVehicleId=String(vehicleId??'').trim();
+  const normalizedTripId=String(tripId??'').trim();
+  if(!normalizedVehicleId||!normalizedTripId)return null;
+  try{
+    const data=await api('/gps/'+encodeURIComponent(normalizedVehicleId)+'/trips/'+encodeURIComponent(normalizedTripId));
+    const trip=data?.trip??data??null;
+    return trip&&typeof trip==='object'&&!Array.isArray(trip)?trip:null;
+  }catch(error){
+    console.warn('[apiGetGpsTrip] fallback null',error);
+    return null;
+  }
+}

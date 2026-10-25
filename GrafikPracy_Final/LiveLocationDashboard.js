@@ -12,12 +12,46 @@ const distanceMeters=(a,b)=>{if(!a||!b)return Infinity;const R=6371000,p1=a.lati
 const ageText=ts=>{const m=Math.max(0,Math.floor((Date.now()-serverMillis(ts))/60000));if(m<1)return 'przed chwilą';if(m<60)return m+' min temu';return Math.floor(m/60)+' h '+m%60+' min temu';};
 const geocodeAddress=async point=>{const lat=Number(point?.latitude),lon=Number(point?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;try{const res=await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='+encodeURIComponent(lat)+'&longitude='+encodeURIComponent(lon)+'&localityLanguage=pl',{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),locality=d.city||d.locality||d.principalSubdivision||'',road=d.localityInfo?.informative?.find(x=>/street|road|ulica|droga/i.test(x.description||''))?.name||'';const address=[locality,road].filter(Boolean).join(', ');if(address)return address;}}catch{}try{const res=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=pl&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon),{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),a=d?.address||{},locality=a.city||a.town||a.village||a.municipality||a.suburb||a.county||'',road=a.road||a.pedestrian||a.residential||a.highway||'',house=a.house_number||'',ref=a.ref||'';return [locality,ref&&ref!==road?ref:'',road+(house?' '+house:'')].filter(Boolean).join(', ')||d.name||null;}}catch{}return null;};
 const mapUrl=loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;const d=0.006;return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;};
+const coordinateIsValid=value=>(typeof value==='number'||(typeof value==='string'&&value.trim()!==''))&&Number.isFinite(Number(value));
+const cleanGpsPoints=rows=>{
+ const sorted=(rows||[]).filter(p=>{
+   const lat=Number(p?.latitude),lon=Number(p?.longitude),time=serverMillis(p?.updatedAt);
+   const accuracy=p?.accuracy==null?null:Number(p.accuracy);
+   return coordinateIsValid(p?.latitude)&&coordinateIsValid(p?.longitude)&&Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180&&time>0&&
+     (accuracy===null||(Number.isFinite(accuracy)&&accuracy<=40));
+ }).map(p=>({...p,latitude:Number(p.latitude),longitude:Number(p.longitude),time:serverMillis(p.updatedAt)}))
+   .sort((a,b)=>a.time-b.time);
+ const accepted=[];
+ for(const point of sorted){
+   const previous=accepted[accepted.length-1];
+   if(previous){
+     const timeDiff=point.time-previous.time;
+     if(timeDiff<=0)continue;
+     const distance=distanceMeters(previous,point);
+     if(distance>200&&timeDiff<5000)continue;
+     if(distance<8&&timeDiff<5000)continue;
+   }
+   accepted.push(point);
+ }
+ return accepted;
+};
+const smoothRoute=points=>{
+ if(points.length<3)return points;
+ return points.map((point,index)=>{
+   if(index===0||index===points.length-1)return point;
+   const previous=points[index-1],next=points[index+1];
+   const beforeGap=point.time-previous.time,afterGap=next.time-point.time;
+   if(beforeGap<=0||afterGap<=0||beforeGap>15*60*1000||afterGap>15*60*1000)return point;
+   if(distanceMeters(previous,point)>120||distanceMeters(point,next)>120)return point;
+   return {...point,latitude:(previous.latitude+point.latitude+next.latitude)/3,longitude:(previous.longitude+point.longitude+next.longitude)/3};
+ });
+};
 const buildLiveMapData=(current,rows)=>{
- const valid=(rows||[]).filter(p=>Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))&&serverMillis(p.updatedAt)>0).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
+ const valid=smoothRoute(cleanGpsPoints(rows));
  const segments=[];let segment=[],previous=null;
  const flush=()=>{if(segment.length>1)segments.push(segment);segment=[];};
  for(const p of valid){
-   const point={latitude:Number(p.latitude),longitude:Number(p.longitude),speed:Number(p.speed||0),time:serverMillis(p.updatedAt)};
+   const point={latitude:p.latitude,longitude:p.longitude,speed:Number(p.speed||0),time:p.time};
    const moved=previous?distanceMeters(previous,point):0;
    const gap=previous?point.time-previous.time:0;
    const continuous=previous&&gap>0&&gap<=15*60*1000;
@@ -34,7 +68,7 @@ const buildLiveMapData=(current,rows)=>{
 };
 const buildLiveMapHtml=(current,rows,liveUpdates=false)=>{
  const initialData=JSON.stringify(liveUpdates?{current:null,segments:[]}:buildLiveMapData(current,rows)).replace(/</g,'\\u003c');
- return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#101722}.leaflet-control-attribution{font-size:9px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const map=L.map("map",{zoomControl:true}).setView([51.0,16.8],7);const tileUrl=${JSON.stringify(MAPTILER_KEY ? "https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key="+MAPTILER_KEY : "https://tile.openstreetmap.org/{z}/{x}/{y}.png")};const tileAttribution=${JSON.stringify(MAPTILER_KEY ? "© MapTiler © OpenStreetMap contributors" : "© OpenStreetMap contributors")};let fallbackTiles=false;let tiles=L.tileLayer(tileUrl,{maxZoom:19,attribution:tileAttribution}).addTo(map);tiles.on("tileerror",function(){if(!fallbackTiles&&tileUrl.indexOf("api.maptiler.com")>=0){fallbackTiles=true;map.removeLayer(tiles);tiles=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);}});const layerGroup=L.layerGroup().addTo(map);let hasInitialView=false;let userInteracted=false;let applyingView=false;map.on("dragstart",function(){userInteracted=true;});map.on("zoomstart",function(){if(!applyingView)userInteracted=true;});function updateMap(d){layerGroup.clearLayers();let bounds=[];(d.segments||[]).forEach(points=>{L.polyline(points,{color:"#2d7cff",weight:5,opacity:.9}).addTo(layerGroup);bounds.push(...points);});if(d.current){const marker=L.circleMarker([d.current.lat,d.current.lon],{radius:9,color:"#fff",weight:3,fillColor:d.current.speed*3.6>=5?"#22c55e":"#f59e0b",fillOpacity:1}).addTo(layerGroup);marker.bindPopup("Aktualna pozycja<br>Prędkość: "+Math.round(d.current.speed*3.6)+" km/h<br>Aktualizacja: "+new Date(d.current.time).toLocaleTimeString("pl-PL"));bounds.push([d.current.lat,d.current.lon]);}if(!hasInitialView&&bounds.length){if(!userInteracted){applyingView=true;if(bounds.length>1)map.fitBounds(bounds,{padding:[20,20],maxZoom:16});else map.setView(bounds[0],15);setTimeout(function(){applyingView=false;},350);}hasInitialView=true;}}var latestMapData=${initialData};window.updateMapData=function(json){try{latestMapData=JSON.parse(json);updateMap(latestMapData);}catch(e){}};window.setNativeMapSize=function(width,height){var el=document.getElementById("map");if(el&&width>0&&height>0){el.style.width=Math.round(width)+"px";el.style.height=Math.round(height)+"px";map.invalidateSize(true);}};updateMap(latestMapData);setTimeout(function(){map.invalidateSize(true);},250);</script></body></html>`;
+ return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#101722}.leaflet-control-attribution{font-size:9px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const map=L.map("map",{zoomControl:true}).setView([51.0,16.8],7);const tileUrl=${JSON.stringify(MAPTILER_KEY ? "https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key="+MAPTILER_KEY : "https://tile.openstreetmap.org/{z}/{x}/{y}.png")};const tileAttribution=${JSON.stringify(MAPTILER_KEY ? "© MapTiler © OpenStreetMap contributors" : "© OpenStreetMap contributors")};let fallbackTiles=false;let tiles=L.tileLayer(tileUrl,{maxZoom:19,attribution:tileAttribution}).addTo(map);tiles.on("tileerror",function(){if(!fallbackTiles&&tileUrl.indexOf("api.maptiler.com")>=0){fallbackTiles=true;map.removeLayer(tiles);tiles=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);}});const layerGroup=L.layerGroup().addTo(map);const routeLines=[];let currentMarker=null;let hasInitialView=false;let userInteracted=false;let applyingView=false;map.on("dragstart",function(){userInteracted=true;});map.on("zoomstart",function(){if(!applyingView)userInteracted=true;});function updateMap(d){let bounds=[];const segments=d.segments||[];segments.forEach((points,index)=>{let line=routeLines[index];if(!line){line=L.polyline(points,{color:"#2d7cff",weight:5,opacity:.9}).addTo(layerGroup);routeLines[index]=line;}else line.setLatLngs(points);bounds.push(...points);});while(routeLines.length>segments.length){const line=routeLines.pop();layerGroup.removeLayer(line);}if(d.current){const latlng=[d.current.lat,d.current.lon];if(!currentMarker){currentMarker=L.circleMarker(latlng,{radius:9,color:"#fff",weight:3,fillColor:d.current.speed*3.6>=5?"#22c55e":"#f59e0b",fillOpacity:1}).addTo(layerGroup);currentMarker.bindPopup("Aktualna pozycja<br>Prędkość: "+Math.round(d.current.speed*3.6)+" km/h<br>Aktualizacja: "+new Date(d.current.time).toLocaleTimeString("pl-PL"));}else{currentMarker.setLatLng(latlng);currentMarker.setStyle({fillColor:d.current.speed*3.6>=5?"#22c55e":"#f59e0b"});currentMarker.setPopupContent("Aktualna pozycja<br>Prędkość: "+Math.round(d.current.speed*3.6)+" km/h<br>Aktualizacja: "+new Date(d.current.time).toLocaleTimeString("pl-PL"));}bounds.push(latlng);}else if(currentMarker){layerGroup.removeLayer(currentMarker);currentMarker=null;}if(!hasInitialView&&bounds.length){if(!userInteracted){applyingView=true;if(bounds.length>1)map.fitBounds(bounds,{padding:[20,20],maxZoom:16});else map.setView(bounds[0],15);setTimeout(function(){applyingView=false;},350);}hasInitialView=true;}}var latestMapData=${initialData};window.updateMapData=function(json){try{latestMapData=JSON.parse(json);updateMap(latestMapData);}catch(e){}};window.setNativeMapSize=function(width,height){var el=document.getElementById("map");if(el&&width>0&&height>0){el.style.width=Math.round(width)+"px";el.style.height=Math.round(height)+"px";map.invalidateSize(true);}};updateMap(latestMapData);setTimeout(function(){map.invalidateSize(true);},250);</script></body></html>`;
 };
 
 export default function LiveLocationDashboard({vehicleRegistration='',warehouseGeo={},reportHistory=[],onApplySuggestion}){
