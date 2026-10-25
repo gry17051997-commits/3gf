@@ -228,9 +228,19 @@ const normalizeGpsTripResponse = response => {
 };
 export async function apiGetGpsTrips(vehicleId) {
   if (vehicleId == null || String(vehicleId).trim() === '') return [];
-  return normalizeGpsTripsResponse(await api('/gps/' + encodeURIComponent(vehicleId) + '/trips'));
+  try {
+    return normalizeGpsTripsResponse(await api('/gps/' + encodeURIComponent(vehicleId) + '/trips'));
+  } catch (error) {
+    if (error?.status === 401 || error?.status === 403) throw error;
+    return [];
+  }
 }
 export async function apiGetGpsTrip(vehicleId, tripId) {
   if (vehicleId == null || String(vehicleId).trim() === '' || tripId == null || String(tripId).trim() === '') return null;
-  return normalizeGpsTripResponse(await api('/gps/' + encodeURIComponent(vehicleId) + '/trips/' + encodeURIComponent(tripId)));
+  try {
+    return normalizeGpsTripResponse(await api('/gps/' + encodeURIComponent(vehicleId) + '/trips/' + encodeURIComponent(tripId)));
+  } catch (error) {
+    if (error?.status === 401 || error?.status === 403) throw error;
+    return null;
+  }
 }
