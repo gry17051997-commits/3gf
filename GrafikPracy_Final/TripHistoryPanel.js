@@ -20,12 +20,12 @@ const fmtDuration = seconds => {
 };
 const tripMapHtml = (points, routeId = '', matchedSegments = []) => {
   const data = JSON.stringify((Array.isArray(points) ? points : []).filter(p => {
-    if (!p || !Number.isFinite(Number(p.latitude)) || !Number.isFinite(Number(p.longitude))) return false;
+    if (!p || p.latitude == null || p.longitude == null || p.latitude === '' || p.longitude === '') return false;
     const lat = Number(p.latitude), lon = Number(p.longitude);
-    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return false;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return false;
     const accuracy = p.accuracy == null || p.accuracy === '' ? null : Number(p.accuracy);
-    if (accuracy != null && Number.isFinite(accuracy) && accuracy > 100) return false;
-    return p.observedAt == null || Number.isFinite(Date.parse(p.observedAt));
+    if (accuracy != null && (!Number.isFinite(accuracy) || accuracy > 100)) return false;
+    return p.observedAt != null && Number.isFinite(Date.parse(p.observedAt));
   }).map(p => ({ ...p, latitude: Number(p.latitude), longitude: Number(p.longitude) }))).replace(/</g, '\\u003c');
   const palette = ['#2d7cff','#f97316','#a855f7','#14b8a6','#eab308','#ec4899','#22c55e','#ef4444'];
   const routeColor = palette[[...String(routeId)].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % palette.length];
