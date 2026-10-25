@@ -56,6 +56,7 @@ test('buildTrips ignores missing and out-of-range GPS coordinates instead of tre
     point(41, '2026-10-17T08:00:10Z', 51, ''),
     point(42, '2026-10-17T08:00:20Z', 91, 17),
     point(43, '2026-10-17T08:00:30Z', 51, 181),
+    point(46, '2026-10-17T08:00:35Z', ' ', ' '),
     point(44, '2026-10-17T08:00:40Z', 51, 17),
     point(45, '2026-10-17T08:00:50Z', 51.0001, 17.0001)
   ];
