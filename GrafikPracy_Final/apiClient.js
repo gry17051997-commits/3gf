@@ -159,5 +159,27 @@ export function onSnapshot(target,options,callback,errorCallback){
 }
 export async function runTransaction(_db,fn){const pending=[];const tx={get:getDoc,update:(r,d)=>{const p=updateDoc(r,d);pending.push(p);return p;},set:(r,d)=>{const p=setDoc(r,d);pending.push(p);return p;}};const result=await fn(tx);await Promise.all(pending);return result;}
 
-export async function apiGetGpsTrips(vehicleId){return (await api('/gps/'+encodeURIComponent(vehicleId)+'/trips')).trips;}
-export async function apiGetGpsTrip(vehicleId,tripId){return (await api('/gps/'+encodeURIComponent(vehicleId)+'/trips/'+encodeURIComponent(tripId))).trip;}
+const normalizeGpsTripsResponse = response => {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.trips)) return response.trips;
+  if (Array.isArray(response?.data?.trips)) return response.data.trips;
+  if (response == null || response?.trips == null || response?.data?.trips == null) return [];
+  return [];
+};
+const normalizeGpsTripResponse = response => {
+  const candidate = response?.trip ?? response?.data?.trip ?? response?.data ?? response;
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
+  const points = Array.isArray(candidate.points) ? candidate.points
+    : Array.isArray(candidate.route) ? candidate.route
+    : Array.isArray(candidate.trip?.points) ? candidate.trip.points
+    : [];
+  return { ...candidate, points };
+};
+export async function apiGetGpsTrips(vehicleId) {
+  if (vehicleId == null || String(vehicleId).trim() === '') return [];
+  return normalizeGpsTripsResponse(await api('/gps/' + encodeURIComponent(vehicleId) + '/trips'));
+}
+export async function apiGetGpsTrip(vehicleId, tripId) {
+  if (vehicleId == null || String(vehicleId).trim() === '' || tripId == null || String(tripId).trim() === '') return null;
+  return normalizeGpsTripResponse(await api('/gps/' + encodeURIComponent(vehicleId) + '/trips/' + encodeURIComponent(tripId)));
+}
