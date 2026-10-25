@@ -205,7 +205,7 @@ const normalizeGpsTripResponse = response => {
   const points = rawPoints.map(point => {
     if (Array.isArray(point) && point.length >= 2) {
       const latitude = point[0], longitude = point[1];
-      if (latitude == null || longitude == null || latitude === '' || longitude === '') return null;
+      if (latitude == null || longitude == null || (typeof latitude === 'string' && latitude.trim() === '') || (typeof longitude === 'string' && longitude.trim() === '')) return null;
       return { latitude: Number(latitude), longitude: Number(longitude) };
     }
     if (point && typeof point === 'object') {
