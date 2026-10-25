@@ -246,8 +246,9 @@ app.post('/api/gps',async(req,res)=>{
   const v=await deviceVehicle(token);
   if(!v)return res.status(401).json({error:'DEVICE_NOT_ASSIGNED'});
   const b=req.body||{};
+  const coordinatesMissing=b.latitude==null||b.longitude==null||b.latitude===''||b.longitude==='';
   const lat=Number(b.latitude),lon=Number(b.longitude);
-  if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat<-90||lat>90||lon<-180||lon>180)return res.status(400).json({error:'INVALID_COORDINATES'});
+  if(coordinatesMissing||!Number.isFinite(lat)||!Number.isFinite(lon)||lat<-90||lat>90||lon<-180||lon>180)return res.status(400).json({error:'INVALID_COORDINATES'});
   const observed=new Date(Number.isFinite(Number(b.observedAt))?Number(b.observedAt):Date.now());
   const accuracy=Number.isFinite(Number(b.accuracy))?Number(b.accuracy):null;
   const altitude=Number.isFinite(Number(b.altitude))?Number(b.altitude):null;
