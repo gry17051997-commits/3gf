@@ -19,6 +19,8 @@ concurrency:
 env:
   EXPO_NO_DOCTOR: "1"
   CI: "1"
+  # Public API origin must be embedded into the Expo bundle at build time.
+  EXPO_PUBLIC_API_URL: "https://grafik-pracy-api.onrender.com"
 
 jobs:
   validate:
