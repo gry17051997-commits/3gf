@@ -19,6 +19,7 @@ concurrency:
 env:
   EXPO_NO_DOCTOR: "1"
   CI: "1"
+  EXPO_PUBLIC_API_URL: https://grafik-pracy-api-fra.onrender.com
 
 jobs:
   validate:
@@ -47,6 +48,10 @@ jobs:
         run: npm test
       - name: Validate project configuration
         run: npx expo config --type public
+      - name: Verify central API URL
+        run: |
+          test -n "$EXPO_PUBLIC_API_URL"
+          node -e "const u = new URL(process.env.EXPO_PUBLIC_API_URL); if (u.protocol !== 'https:' || u.origin !== 'https://grafik-pracy-api-fra.onrender.com' || u.pathname !== '/') process.exit(1); console.log('Central API URL configured:', u.origin)"
       - name: Validate build-fix scripts
         run: |
           node --check scripts/fix-app-build.js
