@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - fix/gps-route-filter-smoothing-2026-10-25
     paths:
       - "GrafikPracy_Final/**"
       - ".github/workflows/build-apk.yml"
