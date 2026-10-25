@@ -5,6 +5,13 @@ import {apiGetGpsTrips, apiGetGpsTrip} from './apiClient';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
 
+const timestampMillis = value => { if (typeof value === 'number' && Number.isFinite(value)) return value; if (value && typeof value.toMillis === 'function') return value.toMillis(); if (typeof value === 'string' && value.trim()) { const n=Number(value); if(Number.isFinite(n)) return n; const parsed=Date.parse(value); return Number.isFinite(parsed)?parsed:0; } return 0; };
+const coordinateIsValid = value => (typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value));
+const distanceMeters = (a,b) => { if(!a||!b)return Infinity; const R=6371000,p1=Number(a.latitude)*Math.PI/180,p2=Number(b.latitude)*Math.PI/180,dLat=(Number(b.latitude)-Number(a.latitude))*Math.PI/180,dLon=(Number(b.longitude)-Number(a.longitude))*Math.PI/180,h=Math.sin(dLat/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.sqrt(Math.max(0,Math.min(1,h)))); };
+const cleanGpsPoints = (points=[]) => { const valid=(Array.isArray(points)?points:[]).filter(p=>coordinateIsValid(p?.latitude)&&coordinateIsValid(p?.longitude)&&Math.abs(Number(p.latitude))<=90&&Math.abs(Number(p.longitude))<=180&&timestampMillis(p?.observedAt??p?.updatedAt)>0&&(p?.accuracy==null||Number(p.accuracy)<=40)).map(p=>({...p,latitude:Number(p.latitude),longitude:Number(p.longitude),_time:timestampMillis(p.observedAt??p.updatedAt)})).sort((a,b)=>a._time-b._time); const out=[]; for(const point of valid){const prev=out[out.length-1];if(prev){const dt=point._time-prev._time,dist=distanceMeters(prev,point);if(dt<=0)continue;if(dist<8&&dt<5000)continue;if(dist>200&&dt<5000)continue;}out.push(point);} return out.map(({_time,...point})=>point); };
+const smoothRoute = (points=[]) => { if(points.length<3)return points; return points.map((point,index)=>{if(index===0||index===points.length-1)return point;const prev=points[index-1],next=points[index+1];const tPrev=timestampMillis(prev.observedAt??prev.updatedAt),t=timestampMillis(point.observedAt??point.updatedAt),tNext=timestampMillis(next.observedAt??next.updatedAt);if(t<=tPrev||tNext<=t||t-tPrev>15*60*1000||tNext-t>15*60*1000||distanceMeters(prev,point)>120||distanceMeters(point,next)>120)return point;return {...point,latitude:(prev.latitude+point.latitude+next.latitude)/3,longitude:(prev.longitude+point.longitude+next.longitude)/3};}); };
+
+
 const paletteTripColor = id => ['#2d7cff','#f97316','#a855f7','#14b8a6','#eab308','#ec4899','#22c55e','#ef4444'][[...String(id)].reduce((sum,ch)=>sum+ch.charCodeAt(0),0)%8];
 const fmtDuration = seconds => {
   const s = Math.max(0, Number(seconds) || 0);
@@ -12,7 +19,7 @@ const fmtDuration = seconds => {
   return h ? h + ' godz. ' + m + ' min' : m + ' min';
 };
 const tripMapHtml = (points, routeId = '', matchedSegments = []) => {
-  const data = JSON.stringify((points || []).filter(p => Number.isFinite(Number(p.latitude)) && Number.isFinite(Number(p.longitude)))).replace(/</g, '\\u003c');
+  const data = JSON.stringify(smoothRoute(cleanGpsPoints(points))).replace(/</g, '\\u003c');
   const palette = ['#2d7cff','#f97316','#a855f7','#14b8a6','#eab308','#ec4899','#22c55e','#ef4444'];
   const routeColor = palette[[...String(routeId)].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % palette.length];
   const tileUrl = MAPTILER_KEY ? 'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=' + MAPTILER_KEY : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -60,7 +67,7 @@ export default function TripHistoryPanel({vehicleId}) {
   const openTrip = async trip => {
     try {
       setLoading(true); setError(''); setMatchedSegments([]); setMatchingStatus('Ślad pokazuje zapisane punkty GPS, bez zewnętrznego routingu.');
-      const detail = await apiGetGpsTrip(vehicleId, trip.id); setSelected(detail);
+      const detail = await apiGetGpsTrip(vehicleId, trip.id); setSelected(detail && typeof detail === 'object' ? {...detail, points:Array.isArray(detail.points)?detail.points:[]} : {...trip, points:[]});
     } catch (e) { setError(String(e?.message || 'Nie udało się otworzyć trasy')); }
     finally { setLoading(false); }
   };
@@ -91,6 +98,7 @@ export default function TripHistoryPanel({vehicleId}) {
               <Text style={sub}>{new Date(selected.startedAt).toLocaleString('pl-PL')} do {new Date(selected.endedAt).toLocaleString('pl-PL')}</Text>
               <Text style={sub}>Dystans: {selected.distanceKm} km · czas całkowity: {fmtDuration(selected.durationSeconds)}</Text>
               <Text style={sub}>{matchingStatus || 'Mapa przejazdu'}</Text>
+              {!(Array.isArray(selected.points) && selected.points.some(point => coordinateIsValid(point?.latitude) && coordinateIsValid(point?.longitude) && Math.abs(Number(point.latitude))<=90 && Math.abs(Number(point.longitude))<=180)) ? <Text style={[sub,{color:'#f0b35a'}]}>Brak poprawnych punktów GPS dla tego przejazdu. Szczegóły przejazdu są dostępne, ale nie ma śladu do narysowania.</Text> : null}
               <Text style={sub}>Czas jazdy: {fmtDuration(selected.drivingSeconds)} · postoje: {selected.stops?.length || 0}</Text>
               <Text style={sub}>Średnia podczas jazdy: {selected.averageSpeedKmh} km/h</Text>
               <Text style={sub}>Średnia z postojami: {selected.averageIncludingStopsKmh} km/h · maksymalna: {selected.maxSpeedKmh} km/h</Text>
