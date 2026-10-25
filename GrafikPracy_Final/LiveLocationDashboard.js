@@ -18,7 +18,7 @@ const cleanGpsPoints=rows=>{
    const lat=Number(p?.latitude),lon=Number(p?.longitude),time=serverMillis(p?.updatedAt);
    const accuracy=p?.accuracy==null?null:Number(p.accuracy);
    return coordinateIsValid(p?.latitude)&&coordinateIsValid(p?.longitude)&&Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180&&time>0&&
-     (accuracy===null||(Number.isFinite(accuracy)&&accuracy<=40));
+     (accuracy===null||(Number.isFinite(accuracy)&&accuracy<=100));
  }).map(p=>({...p,latitude:Number(p.latitude),longitude:Number(p.longitude),time:serverMillis(p.updatedAt)}))
    .sort((a,b)=>a.time-b.time);
  const accepted=[];

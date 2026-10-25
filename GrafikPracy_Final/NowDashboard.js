@@ -25,7 +25,7 @@ const distanceMeters=(a,b)=>{if(!a||!b)return Infinity;const R=6371000,p1=a.lati
 const cleanGpsPoints=rows=>{
  const sorted=(rows||[]).filter(p=>{
   const lat=Number(p?.latitude),lon=Number(p?.longitude),time=serverMillis(p?.updatedAt),accuracy=p?.accuracy==null?null:Number(p.accuracy);
-  return coordinateIsValid(p?.latitude)&&coordinateIsValid(p?.longitude)&&Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180&&time>0&&(accuracy===null||(Number.isFinite(accuracy)&&accuracy<=40));
+  return coordinateIsValid(p?.latitude)&&coordinateIsValid(p?.longitude)&&Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180&&time>0&&(accuracy===null||(Number.isFinite(accuracy)&&accuracy<=100));
  }).map(p=>({...p,latitude:Number(p.latitude),longitude:Number(p.longitude),time:serverMillis(p.updatedAt)})).sort((a,b)=>a.time-b.time);
  const accepted=[];
  for(const point of sorted){const previous=accepted[accepted.length-1];if(previous){const dt=point.time-previous.time;if(dt<=0)continue;const distance=distanceMeters(previous,point);if(distance>200&&dt<5000)continue;if(distance<8&&dt<5000)continue;}accepted.push(point);}
