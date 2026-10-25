@@ -15,6 +15,13 @@ const LOCATION_PENDING_QUEUE_KEY = 'grafik-pracy-location-pending-queue-v1';
 const MAX_PENDING_GPS_POINTS = 250;
 const MAX_GPS_QUEUE_FLUSH_PER_PASS = 20;
 
+const hasValidGpsCoordinates=(latitude,longitude)=>{
+  if(latitude==null||longitude==null)return false;
+  if((typeof latitude==='string'&&latitude.trim()==='')||(typeof longitude==='string'&&longitude.trim()===''))return false;
+  const lat=Number(latitude),lon=Number(longitude);
+  return Number.isFinite(lat)&&Number.isFinite(lon)&&lat>=-90&&lat<=90&&lon>=-180&&lon<=180;
+};
+
 export const normalizeVehicleId=value=>String(value||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40)||'SLUZBOWY';
 
 const getConfig=async()=>{try{const raw=await AsyncStorage.getItem(LOCATION_CONFIG_KEY);return raw?JSON.parse(raw):{};}catch{return{};}};
@@ -22,7 +29,7 @@ export const getLocationDeviceToken=()=>AsyncStorage.getItem(LOCATION_DEVICE_TOK
 export const getLocationDiagnostics=async()=>{try{const raw=await AsyncStorage.getItem(LOCATION_DIAGNOSTICS_KEY);return raw?JSON.parse(raw):{};}catch{return{};}};
 const patchDiagnostics=async patch=>{try{const old=await getLocationDiagnostics();await AsyncStorage.setItem(LOCATION_DIAGNOSTICS_KEY,JSON.stringify({...old,...patch}));}catch(error){console.log('LOCATION_DIAGNOSTICS_WRITE_ERROR',error?.message||error);}};
 
-const readPendingGpsQueue=async()=>{try{const raw=await AsyncStorage.getItem(LOCATION_PENDING_QUEUE_KEY);const parsed=raw?JSON.parse(raw):[];return Array.isArray(parsed)?parsed.filter(x=>x&&x.payload&&Number.isFinite(Number(x.payload.observedAt))):[];}catch{return[];}};
+const readPendingGpsQueue=async()=>{try{const raw=await AsyncStorage.getItem(LOCATION_PENDING_QUEUE_KEY);const parsed=raw?JSON.parse(raw):[];return Array.isArray(parsed)?parsed.filter(x=>x&&x.payload&&Number.isFinite(Number(x.payload.observedAt))&&hasValidGpsCoordinates(x.payload.latitude,x.payload.longitude)):[];}catch{return[];}};
 const writePendingGpsQueue=async queue=>{await AsyncStorage.setItem(LOCATION_PENDING_QUEUE_KEY,JSON.stringify(queue));await patchDiagnostics({pendingGpsQueueLength:queue.length});};
 const enqueuePendingGps=async(payload,vehicleId)=>{
   const normalizedVehicleId=normalizeVehicleId(vehicleId);
@@ -110,11 +117,16 @@ const LOCATION_OPTIONS={
 let saveQueue=Promise.resolve();
 async function saveLocationInternal(location){
   if(!location?.coords||!API_BASE_URL)return;
+  const c=location.coords;
+  if(!hasValidGpsCoordinates(c.latitude,c.longitude)){
+    await patchDiagnostics({lastUploadError:'GPS_INVALID_COORDINATES',lastUploadErrorAt:Date.now()});
+    return;
+  }
   const cfg=await getConfig();
   if(cfg.enabled!==true)return;
   const deviceToken=await getLocationDeviceToken();
   if(!deviceToken)return;
-  const c=location.coords,now=Date.now();
+  const now=Date.now();
   const payload={
     latitude:Number(c.latitude),
     longitude:Number(c.longitude),
