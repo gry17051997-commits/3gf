@@ -89,7 +89,7 @@ export default function LiveLocationDashboard({vehicleRegistration='',warehouseG
  </ScrollView>;
 }
 const buildGpsEvents=rows=>{
- const points=[...(Array.isArray(rows)?rows:[])].filter(p=>p&&p.latitude!=null&&p.longitude!=null&&p.latitude!==''&&p.longitude!==''&&serverMillis(p.updatedAt)>0&&Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))&&Math.abs(Number(p.latitude))<=90&&Math.abs(Number(p.longitude))<=180).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
+ const points=[...(Array.isArray(rows)?rows:[])].filter(p=>p&&p.latitude!=null&&p.longitude!=null&&!(typeof p.latitude==='string'&&p.latitude.trim()==='')&&!(typeof p.longitude==='string'&&p.longitude.trim()==='')&&serverMillis(p.updatedAt)>0&&Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))&&Math.abs(Number(p.latitude))<=90&&Math.abs(Number(p.longitude))<=180).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
  const classified=[];let previous=null,lastStable=false;
  for(const point of points){
   const t=serverMillis(point.updatedAt),gap=previous?t-serverMillis(previous.updatedAt):0,moved=previous?distanceMeters(previous,point):0;
