@@ -14,7 +14,7 @@ const geocodeAddress=async point=>{const lat=Number(point?.latitude),lon=Number(
 const mapUrl=loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;const d=0.006;return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;};
 const buildLiveMapData=(current,rows)=>{
  const valid=(Array.isArray(rows)?rows:[]).filter(p=>{
-   if(!p||p.latitude==null||p.longitude==null||p.latitude===''||p.longitude===''||!Number.isFinite(Number(p.latitude))||!Number.isFinite(Number(p.longitude))||serverMillis(p.updatedAt)<=0)return false;
+   if(!p||p.latitude==null||p.longitude==null||(typeof p.latitude==='string'&&p.latitude.trim()==='')||(typeof p.longitude==='string'&&p.longitude.trim()==='')||!Number.isFinite(Number(p.latitude))||!Number.isFinite(Number(p.longitude))||serverMillis(p.updatedAt)<=0)return false;
    const lat=Number(p.latitude),lon=Number(p.longitude);
    if(Math.abs(lat)>90||Math.abs(lon)>180)return false;
    const accuracy=p.accuracy==null||p.accuracy===''?null:Number(p.accuracy);
@@ -37,7 +37,7 @@ const buildLiveMapData=(current,rows)=>{
  }
  flush();
  const currentLat=Number(current?.latitude),currentLon=Number(current?.longitude);
- const currentValid=current&&current.latitude!=null&&current.longitude!=null&&current.latitude!==''&&current.longitude!==''&&Number.isFinite(currentLat)&&Number.isFinite(currentLon)&&Math.abs(currentLat)<=90&&Math.abs(currentLon)<=180&&serverMillis(current.updatedAt)>0;
+ const currentValid=current&&current.latitude!=null&&current.longitude!=null&&!(typeof current.latitude==='string'&&current.latitude.trim()==='')&&!(typeof current.longitude==='string'&&current.longitude.trim()==='')&&Number.isFinite(currentLat)&&Number.isFinite(currentLon)&&Math.abs(currentLat)<=90&&Math.abs(currentLon)<=180&&serverMillis(current.updatedAt)>0;
  return {current:currentValid?{lat:currentLat,lon:currentLon,speed:Number(current.speed||0),time:serverMillis(current.updatedAt)}:null,segments};
 };
 const buildLiveMapHtml=(current,rows,liveUpdates=false)=>{
