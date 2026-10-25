@@ -232,7 +232,8 @@ export async function apiGetGpsTrips(vehicleId) {
     return normalizeGpsTripsResponse(await api('/gps/' + encodeURIComponent(vehicleId) + '/trips'));
   } catch (error) {
     if (error?.status === 401 || error?.status === 403) throw error;
-    return [];
+    if (error?.status != null) return [];
+    throw error;
   }
 }
 export async function apiGetGpsTrip(vehicleId, tripId) {
@@ -241,6 +242,7 @@ export async function apiGetGpsTrip(vehicleId, tripId) {
     return normalizeGpsTripResponse(await api('/gps/' + encodeURIComponent(vehicleId) + '/trips/' + encodeURIComponent(tripId)));
   } catch (error) {
     if (error?.status === 401 || error?.status === 403) throw error;
-    return null;
+    if (error?.status != null) return null;
+    throw error;
   }
 }
