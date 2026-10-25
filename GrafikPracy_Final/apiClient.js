@@ -188,7 +188,10 @@ const normalizeGpsTripsResponse = response => {
         durationSeconds: Number.isFinite(duration) && duration >= 0 ? duration : 0
       };
     })
-    .filter(row => row.id !== '');
+    .filter(row => row.id !== ''
+      && row.startedAt != null && Number.isFinite(Date.parse(row.startedAt))
+      && row.endedAt != null && Number.isFinite(Date.parse(row.endedAt))
+      && row.distanceKm >= 0);
 };
 const normalizeGpsTripResponse = response => {
   const value = unwrapGpsResponse(response);
@@ -212,14 +215,14 @@ const normalizeGpsTripResponse = response => {
   }).filter(point => point && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)
     && Math.abs(point.latitude) <= 90 && Math.abs(point.longitude) <= 180);
   const id = candidate.id ?? candidate.tripId ?? candidate.trip_id;
+  if (id == null || String(id).trim() === '') return null;
+  const rawDistance = Number(candidate.distanceKm ?? candidate.distance_km ?? candidate.distance);
+  const rawDuration = Number(candidate.durationSeconds ?? candidate.duration_seconds ?? candidate.duration);
   return {
     ...candidate,
-    id: id == null ? '' : String(id),
-    distanceKm: Number.isFinite(Number(candidate.distanceKm ?? candidate.distance_km ?? candidate.distance))
-      ? Number(candidate.distanceKm ?? candidate.distance_km ?? candidate.distance) : 0,
-    durationSeconds: Number.isFinite(Number(candidate.durationSeconds ?? candidate.duration_seconds ?? candidate.duration))
-      && Number(candidate.durationSeconds ?? candidate.duration_seconds ?? candidate.duration) >= 0
-      ? Number(candidate.durationSeconds ?? candidate.duration_seconds ?? candidate.duration) : 0,
+    id: String(id),
+    distanceKm: Number.isFinite(rawDistance) && rawDistance >= 0 ? rawDistance : 0,
+    durationSeconds: Number.isFinite(rawDuration) && rawDuration >= 0 ? rawDuration : 0,
     points
   };
 };
