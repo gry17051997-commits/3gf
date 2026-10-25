@@ -20,7 +20,7 @@ const fmtDuration = seconds => {
 };
 const tripMapHtml = (points, routeId = '', matchedSegments = []) => {
   const data = JSON.stringify((Array.isArray(points) ? points : []).filter(p => {
-    if (!p || p.latitude == null || p.longitude == null || p.latitude === '' || p.longitude === '') return false;
+    if (!p || p.latitude == null || p.longitude == null || (typeof p.latitude === 'string' && p.latitude.trim() === '') || (typeof p.longitude === 'string' && p.longitude.trim() === '')) return false;
     const lat = Number(p.latitude), lon = Number(p.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return false;
     const accuracy = p.accuracy == null || p.accuracy === '' ? null : Number(p.accuracy);
