@@ -204,11 +204,14 @@ const normalizeGpsTripResponse = response => {
     : [];
   const points = rawPoints.map(point => {
     if (Array.isArray(point) && point.length >= 2) {
-      return { latitude: Number(point[0]), longitude: Number(point[1]) };
+      const latitude = point[0], longitude = point[1];
+      if (latitude == null || longitude == null || latitude === '' || longitude === '') return null;
+      return { latitude: Number(latitude), longitude: Number(longitude) };
     }
     if (point && typeof point === 'object') {
       const latitude = point.latitude ?? point.lat;
       const longitude = point.longitude ?? point.lon ?? point.lng;
+      if (latitude == null || longitude == null || latitude === '' || longitude === '') return null;
       return { ...point, latitude: Number(latitude), longitude: Number(longitude) };
     }
     return null;
