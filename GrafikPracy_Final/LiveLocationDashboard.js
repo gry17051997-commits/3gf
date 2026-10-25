@@ -13,7 +13,13 @@ const ageText=ts=>{const m=Math.max(0,Math.floor((Date.now()-serverMillis(ts))/6
 const geocodeAddress=async point=>{const lat=Number(point?.latitude),lon=Number(point?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;try{const res=await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='+encodeURIComponent(lat)+'&longitude='+encodeURIComponent(lon)+'&localityLanguage=pl',{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),locality=d.city||d.locality||d.principalSubdivision||'',road=d.localityInfo?.informative?.find(x=>/street|road|ulica|droga/i.test(x.description||''))?.name||'';const address=[locality,road].filter(Boolean).join(', ');if(address)return address;}}catch{}try{const res=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=pl&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon),{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),a=d?.address||{},locality=a.city||a.town||a.village||a.municipality||a.suburb||a.county||'',road=a.road||a.pedestrian||a.residential||a.highway||'',house=a.house_number||'',ref=a.ref||'';return [locality,ref&&ref!==road?ref:'',road+(house?' '+house:'')].filter(Boolean).join(', ')||d.name||null;}}catch{}return null;};
 const mapUrl=loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;const d=0.006;return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;};
 const buildLiveMapData=(current,rows)=>{
- const valid=(rows||[]).filter(p=>Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))&&serverMillis(p.updatedAt)>0).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
+ const valid=(Array.isArray(rows)?rows:[]).filter(p=>{
+   if(!p||p.latitude==null||p.longitude==null||(typeof p.latitude==='string'&&p.latitude.trim()==='')||(typeof p.longitude==='string'&&p.longitude.trim()==='')||!Number.isFinite(Number(p.latitude))||!Number.isFinite(Number(p.longitude))||serverMillis(p.updatedAt)<=0)return false;
+   const lat=Number(p.latitude),lon=Number(p.longitude);
+   if(Math.abs(lat)>90||Math.abs(lon)>180)return false;
+   const accuracy=p.accuracy==null||p.accuracy===''?null:Number(p.accuracy);
+   return accuracy==null||!Number.isFinite(accuracy)||accuracy<=100;
+ }).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
  const segments=[];let segment=[],previous=null;
  const flush=()=>{if(segment.length>1)segments.push(segment);segment=[];};
  for(const p of valid){
@@ -30,7 +36,9 @@ const buildLiveMapData=(current,rows)=>{
    previous=point;
  }
  flush();
- return {current:current?{lat:Number(current.latitude),lon:Number(current.longitude),speed:Number(current.speed||0),time:serverMillis(current.updatedAt)}:null,segments};
+ const currentLat=Number(current?.latitude),currentLon=Number(current?.longitude);
+ const currentValid=current&&current.latitude!=null&&current.longitude!=null&&!(typeof current.latitude==='string'&&current.latitude.trim()==='')&&!(typeof current.longitude==='string'&&current.longitude.trim()==='')&&Number.isFinite(currentLat)&&Number.isFinite(currentLon)&&Math.abs(currentLat)<=90&&Math.abs(currentLon)<=180&&serverMillis(current.updatedAt)>0;
+ return {current:currentValid?{lat:currentLat,lon:currentLon,speed:Number(current.speed||0),time:serverMillis(current.updatedAt)}:null,segments};
 };
 const buildLiveMapHtml=(current,rows,liveUpdates=false)=>{
  const initialData=JSON.stringify(liveUpdates?{current:null,segments:[]}:buildLiveMapData(current,rows)).replace(/</g,'\\u003c');
@@ -45,7 +53,7 @@ export default function LiveLocationDashboard({vehicleRegistration='',warehouseG
  const resizeNativeMap=()=>{const {width,height}=nativeMapSizeRef.current;if(!nativeMapLoaded.current||!nativeMapRef.current||width<=0||height<=0)return;nativeMapRef.current.injectJavaScript('window.setNativeMapSize('+width+','+height+'); true;');};
  useEffect(()=>{syncNativeMap();},[mapData]);
  const refreshTick=useSecondTicker(10000);
- const load=async()=>{try{const rows=await apiGetGps();const requested=normalizeVehicleId(vehicleRegistration);const selected=rows.filter(x=>requested?normalizeVehicleId(x.registration||x.id)===requested:true).sort((a,b)=>serverMillis(b.observed_at)-serverMillis(a.observed_at))[0]||null;if(!selected){setLocationError('API nie zwróciło nowej pozycji. Zachowuję ostatnią znaną lokalizację.');return;}const point={...selected,updatedAt:selected.observed_at};setLocation(point);const h=await api('/gps/'+encodeURIComponent(selected.id)+'/history');setHistory((h.history||[]).map(x=>({...x,updatedAt:x.observed_at})));setLocationError(Date.now()-serverMillis(point.updatedAt)>180000?'Nadajnik istnieje, ale ostatnia pozycja jest starsza niż 3 minuty.':'');}catch(e){setLocationError(e?.status===401?'Brak autoryzacji API. Zachowuję ostatnią znaną lokalizację.':'Błąd połączenia z API. Zachowuję ostatnią znaną lokalizację i pokazuję jej wiek.');}};
+ const load=async()=>{try{const rows=await apiGetGps();const requested=normalizeVehicleId(vehicleRegistration);const selected=rows.filter(x=>requested?normalizeVehicleId(x.registration||x.id)===requested:true).sort((a,b)=>serverMillis(b.observed_at)-serverMillis(a.observed_at))[0]||null;if(!selected){setLocationError('API nie zwróciło nowej pozycji. Zachowuję ostatnią znaną lokalizację.');return;}if(selected.latitude==null||selected.longitude==null||selected.latitude===''||selected.longitude===''||!Number.isFinite(Number(selected.latitude))||!Number.isFinite(Number(selected.longitude))||Math.abs(Number(selected.latitude))>90||Math.abs(Number(selected.longitude))>180||!serverMillis(selected.observed_at)){setLocationError('Pojazd jest skonfigurowany, ale API nie zwróciło prawidłowego punktu GPS. Zachowuję ostatnią znaną lokalizację.');return;}const point={...selected,updatedAt:selected.observed_at};setLocation(point);const h=await api('/gps/'+encodeURIComponent(selected.id)+'/history');setHistory((h.history||[]).map(x=>({...x,updatedAt:x.observed_at})));setLocationError(Date.now()-serverMillis(point.updatedAt)>180000?'Nadajnik istnieje, ale ostatnia pozycja jest starsza niż 3 minuty.':'');}catch(e){setLocationError(e?.status===401?'Brak autoryzacji API. Zachowuję ostatnią znaną lokalizację.':'Błąd połączenia z API. Zachowuję ostatnią znaną lokalizację i pokazuję jej wiek.');}};
  useEffect(()=>{load();},[vehicleRegistration,refreshTick]);
  useEffect(()=>{let cancelled=false;if(!location){setLocationAddress('Brak adresu lokalizacji');return;}setLocationAddress('Ustalanie adresu…');const timer=setTimeout(async()=>{const address=await geocodeAddress(location);if(!cancelled)setLocationAddress(address||'Nie udało się ustalić adresu');},350);return()=>{cancelled=true;clearTimeout(timer);};},[location?.latitude?Math.round(Number(location.latitude)*10000):null,location?.longitude?Math.round(Number(location.longitude)*10000):null]);
  const warehouses=Object.entries(warehouseGeo||{}).map(([name,v])=>({name,...v}));
@@ -81,7 +89,7 @@ export default function LiveLocationDashboard({vehicleRegistration='',warehouseG
  </ScrollView>;
 }
 const buildGpsEvents=rows=>{
- const points=[...(rows||[])].filter(p=>serverMillis(p.updatedAt)>0&&Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
+ const points=[...(Array.isArray(rows)?rows:[])].filter(p=>p&&p.latitude!=null&&p.longitude!=null&&!(typeof p.latitude==='string'&&p.latitude.trim()==='')&&!(typeof p.longitude==='string'&&p.longitude.trim()==='')&&serverMillis(p.updatedAt)>0&&Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))&&Math.abs(Number(p.latitude))<=90&&Math.abs(Number(p.longitude))<=180).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
  const classified=[];let previous=null,lastStable=false;
  for(const point of points){
   const t=serverMillis(point.updatedAt),gap=previous?t-serverMillis(previous.updatedAt):0,moved=previous?distanceMeters(previous,point):0;

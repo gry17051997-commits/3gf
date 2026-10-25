@@ -121,7 +121,9 @@ function summarizeTrip(rows, vehicleId, includePoints) {
 export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs = TRIP_GAP_MS, stationarySplitMs = 12 * 60 * 1000 } = {}) {
   const valid = (Array.isArray(rows) ? rows : [])
     .filter(row => row && row.id != null && asMillis(row.observed_at) != null
-      && Number.isFinite(Number(row.latitude)) && Number.isFinite(Number(row.longitude)))
+      && row.latitude != null && row.longitude != null && !(typeof row.latitude === 'string' && row.latitude.trim() === '') && !(typeof row.longitude === 'string' && row.longitude.trim() === '')
+      && Number.isFinite(Number(row.latitude)) && Number.isFinite(Number(row.longitude))
+      && Math.abs(Number(row.latitude)) <= 90 && Math.abs(Number(row.longitude)) <= 180)
     .slice()
     .sort((a, b) => asMillis(a.observed_at) - asMillis(b.observed_at) || Number(a.id) - Number(b.id));
 
