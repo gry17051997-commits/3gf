@@ -13,7 +13,7 @@ const ageText=ts=>{const m=Math.max(0,Math.floor((Date.now()-serverMillis(ts))/6
 const geocodeAddress=async point=>{const lat=Number(point?.latitude),lon=Number(point?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;try{const res=await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='+encodeURIComponent(lat)+'&longitude='+encodeURIComponent(lon)+'&localityLanguage=pl',{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),locality=d.city||d.locality||d.principalSubdivision||'',road=d.localityInfo?.informative?.find(x=>/street|road|ulica|droga/i.test(x.description||''))?.name||'';const address=[locality,road].filter(Boolean).join(', ');if(address)return address;}}catch{}try{const res=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=pl&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon),{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),a=d?.address||{},locality=a.city||a.town||a.village||a.municipality||a.suburb||a.county||'',road=a.road||a.pedestrian||a.residential||a.highway||'',house=a.house_number||'',ref=a.ref||'';return [locality,ref&&ref!==road?ref:'',road+(house?' '+house:'')].filter(Boolean).join(', ')||d.name||null;}}catch{}return null;};
 const mapUrl=loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;const d=0.006;return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;};
 const coordinateIsValid=value=>(typeof value==='number'||(typeof value==='string'&&value.trim()!==''))&&Number.isFinite(Number(value));
-const filterGpsPoints=rows=>{
+const cleanGpsPoints=rows=>{
  const sorted=(rows||[]).filter(p=>{
    const lat=Number(p?.latitude),lon=Number(p?.longitude),time=serverMillis(p?.updatedAt);
    const accuracy=p?.accuracy==null?null:Number(p.accuracy);
@@ -47,7 +47,7 @@ const smoothRoute=points=>{
  });
 };
 const buildLiveMapData=(current,rows)=>{
- const valid=smoothRoute(filterGpsPoints(rows));
+ const valid=smoothRoute(cleanGpsPoints(rows));
  const segments=[];let segment=[],previous=null;
  const flush=()=>{if(segment.length>1)segments.push(segment);segment=[];};
  for(const p of valid){
