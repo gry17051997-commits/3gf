@@ -6,6 +6,13 @@ import {apiGetGpsTrips, apiGetGpsTrip} from './apiClient';
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
 
 const paletteTripColor = id => ['#2d7cff','#f97316','#a855f7','#14b8a6','#eab308','#ec4899','#22c55e','#ef4444'][[...String(id)].reduce((sum,ch)=>sum+ch.charCodeAt(0),0)%8];
+const friendlyApiError = (error, fallback) => {
+  const code = String(error?.code || error?.message || '').toUpperCase();
+  if (code.includes('API_ERROR') || code === 'HTTP_ERROR') return fallback;
+  if (code.includes('TIMEOUT')) return 'Serwer GPS nie odpowiedział na czas. Spróbuj ponownie.';
+  if (error?.status === 401 || error?.status === 403) return 'Brak dostępu do historii GPS. Zaloguj się ponownie lub sprawdź uprawnienia.';
+  return fallback;
+};
 const fmtDuration = seconds => {
   const s = Math.max(0, Number(seconds) || 0);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
@@ -37,9 +44,9 @@ export default function TripHistoryPanel({vehicleId}) {
       if (manual && active) setRefreshing(true);
       try {
         const rows = await apiGetGpsTrips(vehicleId);
-        if (active) { setTrips(rows || []); setError(''); }
+        if (active) { setTrips(Array.isArray(rows) ? rows.filter(Boolean) : []); setError(''); }
       } catch (e) {
-        if (active) setError(String(e?.message || 'Nie udało się pobrać historii tras'));
+        if (active) setError(friendlyApiError(e, 'Nie udało się pobrać historii przejazdów. Spróbuj ponownie.'));
       } finally {
         inFlight = false;
         if (manual && active) setRefreshing(false);
@@ -53,15 +60,17 @@ export default function TripHistoryPanel({vehicleId}) {
   const refreshTrips = async () => {
     if (refreshing || !vehicleId) return;
     setRefreshing(true);
-    try { const rows = await apiGetGpsTrips(vehicleId); setTrips(rows || []); setError(''); }
-    catch (e) { setError(String(e?.message || 'Nie udało się odświeżyć historii tras')); }
+    try { const rows = await apiGetGpsTrips(vehicleId); setTrips(Array.isArray(rows) ? rows.filter(Boolean) : []); setError(''); }
+    catch (e) { setError(friendlyApiError(e, 'Nie udało się odświeżyć historii przejazdów. Spróbuj ponownie.')); }
     finally { setRefreshing(false); }
   };
   const openTrip = async trip => {
     try {
       setLoading(true); setError(''); setMatchedSegments([]); setMatchingStatus('Ślad pokazuje zapisane punkty GPS, bez zewnętrznego routingu.');
-      const detail = await apiGetGpsTrip(vehicleId, trip.id); setSelected(detail);
-    } catch (e) { setError(String(e?.message || 'Nie udało się otworzyć trasy')); }
+      const detail = await apiGetGpsTrip(vehicleId, trip.id);
+      if (!detail) throw new Error('EMPTY_TRIP_RESPONSE');
+      setSelected({ ...detail, points: Array.isArray(detail.points) ? detail.points.filter(p => p && Number.isFinite(Number(p.latitude)) && Number.isFinite(Number(p.longitude))) : [] });
+    } catch (e) { setError(friendlyApiError(e, 'Nie udało się otworzyć przejazdu. Spróbuj ponownie.')); }
     finally { setLoading(false); }
   };
   const card = {backgroundColor:'#141922',borderRadius:18,padding:14,marginBottom:10,borderWidth:1,borderColor:'#303a4a'};
@@ -76,10 +85,10 @@ export default function TripHistoryPanel({vehicleId}) {
     <TouchableOpacity style={button} onPress={refreshTrips} disabled={refreshing}>
       <Text style={buttonText}>{refreshing ? 'ODŚWIEŻANIE…' : 'ODŚWIEŻ HISTORIĘ'}</Text>
     </TouchableOpacity>
-    {error ? <Text style={[sub,{color:'#f0b35a'}]}>{error}</Text> : null}
+    {error ? <Text accessibilityRole="alert" style={[sub,{color:'#f0b35a'}]}>{error}</Text> : null}
     {trips.length ? trips.map(trip => <TouchableOpacity key={trip.id} style={[row,{borderLeftWidth:4,borderLeftColor:paletteTripColor(trip.id),paddingLeft:10}]} disabled={loading} onPress={() => openTrip(trip)}>
       <Text style={{color:'#fff',fontWeight:'800'}}>{new Date(trip.startedAt).toLocaleDateString('pl-PL')} · {new Date(trip.startedAt).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})} do {new Date(trip.endedAt).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}</Text>
-      <Text style={{color:'#fff',fontSize:17,fontWeight:'900',marginTop:5}}>{Number(trip.distanceKm).toFixed(2)} km · {fmtDuration(trip.durationSeconds)}</Text>
+      <Text style={{color:'#fff',fontSize:17,fontWeight:'900',marginTop:5}}>{(Number.isFinite(Number(trip.distanceKm)) ? Number(trip.distanceKm) : 0).toFixed(2)} km · {fmtDuration(trip.durationSeconds)}</Text>
       <Text style={sub}>Śr. {trip.averageSpeedKmh} km/h · maks. {trip.maxSpeedKmh} km/h · {trip.pointCount} punktów GPS ›</Text>
     </TouchableOpacity>) : <Text style={sub}>Brak zarejestrowanych przejazdów z ostatnich 7 dni.</Text>}
     <Modal visible={!!selected} transparent animationType="slide" onRequestClose={() => setSelected(null)}>
