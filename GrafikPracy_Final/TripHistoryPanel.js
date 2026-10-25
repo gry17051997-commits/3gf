@@ -59,7 +59,7 @@ export default function TripHistoryPanel({vehicleId}) {
         if (manual && active) setRefreshing(false);
       }
     };
-    if (!vehicleId) { setTrips([]); return () => { active = false; }; }
+    if (!vehicleId) { setTrips([]); setError(''); setSelected(null); return () => { active = false; }; }
     loadTrips();
     const timer = setInterval(() => loadTrips(), 30000);
     return () => { active = false; clearInterval(timer); };
