@@ -169,10 +169,23 @@ const normalizeGpsTripsResponse = response => {
 const normalizeGpsTripResponse = response => {
   const candidate = response?.trip ?? response?.data?.trip ?? response?.data ?? response;
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
-  const points = Array.isArray(candidate.points) ? candidate.points
+  const rawPoints = Array.isArray(candidate.points) ? candidate.points
     : Array.isArray(candidate.route) ? candidate.route
     : Array.isArray(candidate.trip?.points) ? candidate.trip.points
+    : Array.isArray(candidate.trip?.route) ? candidate.trip.route
     : [];
+  const points = rawPoints.map(point => {
+    if (Array.isArray(point) && point.length >= 2) {
+      return { latitude: Number(point[0]), longitude: Number(point[1]) };
+    }
+    if (point && typeof point === 'object') {
+      const latitude = point.latitude ?? point.lat;
+      const longitude = point.longitude ?? point.lon ?? point.lng;
+      return { ...point, latitude: Number(latitude), longitude: Number(longitude) };
+    }
+    return null;
+  }).filter(point => point && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)
+    && Math.abs(point.latitude) <= 90 && Math.abs(point.longitude) <= 180);
   return { ...candidate, points };
 };
 export async function apiGetGpsTrips(vehicleId) {
