@@ -1,7 +1,5 @@
 name: PR Validation
 
-# APK build retriggered for test artifact generation.
-
 on:
   pull_request:
     branches: ['main']
@@ -19,6 +17,7 @@ concurrency:
 env:
   EXPO_NO_DOCTOR: "1"
   CI: "1"
+  EXPO_PUBLIC_API_URL: https://grafik-pracy-api-fra.onrender.com
 
 jobs:
   validate:
@@ -43,6 +42,10 @@ jobs:
           java-version: "17"
       - name: Install dependencies
         run: npm install --ignore-scripts
+      - name: Verify central API URL
+        run: |
+          test -n "$EXPO_PUBLIC_API_URL"
+          node -e "const u = new URL(process.env.EXPO_PUBLIC_API_URL); if (u.protocol !== 'https:' || u.origin !== process.env.EXPO_PUBLIC_API_URL) process.exit(1); console.log('Central API configured:', u.origin)"
       - name: Production hardening tests
         run: npm test
       - name: Validate project configuration
