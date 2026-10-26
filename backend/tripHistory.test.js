@@ -58,9 +58,9 @@ test('buildTrips closes a trip after a prolonged stationary stop', () => {
     point(21, '2026-10-17T08:00:10Z', 51.0001, 17.0001, 10),
     point(22, '2026-10-17T08:05:00Z', 51.0001, 17.0001, 0),
     point(23, '2026-10-17T08:10:00Z', 51.0001, 17.0001, 0),
-    point(24, '2026-10-17T08:15:00Z', 51.0001, 17.0001, 0),
-    point(25, '2026-10-17T08:16:00Z', 51.0010, 17.0010, 10),
-    point(26, '2026-10-17T08:16:10Z', 51.0011, 17.0011, 10)
+    point(24, '2026-10-17T08:18:00Z', 51.0001, 17.0001, 0),
+    point(25, '2026-10-17T08:19:00Z', 51.0010, 17.0010, 10),
+    point(26, '2026-10-17T08:19:10Z', 51.0011, 17.0011, 10)
   ];
   const trips = buildTrips(rows);
   assert.equal(trips.length, 2);
@@ -126,4 +126,28 @@ test('bad accuracy and implausible jumps are excluded from distance totals', () 
   ];
   const [trip] = buildTrips(rows);
   assert.equal(trip.distanceKm, 0);
+});
+
+test('buildTrips does not invent distance across a large GPS jump', () => {
+  const rows = [
+    point(40, '2026-10-17T10:00:00Z', 51.0, 17.0, 15),
+    point(41, '2026-10-17T10:00:20Z', 51.0002, 17.0002, 15),
+    point(42, '2026-10-17T10:00:50Z', 51.4, 17.4, 15),
+    point(43, '2026-10-17T10:01:10Z', 51.4002, 17.4002, 15)
+  ];
+  const trips = buildTrips(rows, { includePoints: true });
+  assert.equal(trips.length, 1);
+  assert.ok(trips[0].distanceKm < 5, 'distanceKm=' + trips[0].distanceKm);
+});
+
+test('buildTrips keeps chronological order of points inside a trip', () => {
+  const rows = [
+    point(52, '2026-10-17T11:00:20Z', 51.001, 17.001),
+    point(50, '2026-10-17T11:00:00Z', 51.0, 17.0),
+    point(51, '2026-10-17T11:00:10Z', 51.0005, 17.0005)
+  ];
+  const [trip] = buildTrips(rows, { includePoints: true });
+  assert.equal(trip.points[0].id, '50');
+  assert.equal(trip.points[1].id, '51');
+  assert.equal(trip.points[2].id, '52');
 });
