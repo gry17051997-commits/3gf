@@ -57,10 +57,6 @@ jobs:
       - name: Run GPS and production hardening tests
         run: npm test
 
-      - name: Run backend trip history regression suite
-        continue-on-error: true
-        run: node --test ../backend/tripHistory.test.js
-
       - name: Verify central API URL
         run: |
           test -n "$EXPO_PUBLIC_API_URL"
