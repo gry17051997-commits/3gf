@@ -1,6 +1,9 @@
 const TRIP_GAP_MS = 30 * 60 * 1000;
 const MAX_SEGMENT_GAP_MS = 2 * 60 * 1000;
+const MAX_INFERENCE_GAP_MS = 5 * 60 * 1000;
 const MIN_MOVING_SPEED_KMH = 5;
+const MAX_PLAUSIBLE_SPEED_MPS = 55;
+const MAX_ROUTE_ACCURACY_METERS = 100;
 
 const asMillis = value => {
   const result = value instanceof Date ? value.getTime() : new Date(value).getTime();
@@ -38,6 +41,28 @@ function pointView(row) {
   };
 }
 
+function inferredMovement(previous, row) {
+  if (!previous) return false;
+  const previousTime = asMillis(previous.observed_at), rowTime = asMillis(row.observed_at);
+  const dtMs = rowTime - previousTime;
+  if (!(dtMs > 0) || dtMs > MAX_INFERENCE_GAP_MS) return false;
+  const accuracyA = numeric(previous.accuracy), accuracyB = numeric(row.accuracy);
+  if ((accuracyA != null && accuracyA > MAX_ROUTE_ACCURACY_METERS)
+    || (accuracyB != null && accuracyB > MAX_ROUTE_ACCURACY_METERS)) return false;
+  const distance = distanceMeters(previous, row);
+  const seconds = dtMs / 1000;
+  const impliedSpeed = distance / seconds;
+  // Require a meaningful displacement and plausible speed to avoid treating GPS drift as driving.
+  return distance >= Math.max(25, seconds * (MIN_MOVING_SPEED_KMH / 3.6))
+    && impliedSpeed <= MAX_PLAUSIBLE_SPEED_MPS;
+}
+
+function isMoving(row, previous) {
+  const measured = speedKmh(row.speed);
+  return (measured != null && measured >= MIN_MOVING_SPEED_KMH)
+    || inferredMovement(previous, row);
+}
+
 function summarizeTrip(rows, vehicleId, includePoints) {
   const points = rows.map(pointView);
   const first = points[0], last = points[points.length - 1];
@@ -58,10 +83,13 @@ function summarizeTrip(rows, vehicleId, includePoints) {
       const a = asMillis(previous.observedAt), b = asMillis(point.observedAt);
       const dt = b - a;
       const segmentDistance = distanceMeters(previous, point);
-      // Gaps and implausible jumps are not used for distance or speed statistics.
-      if (dt > 0 && dt <= MAX_SEGMENT_GAP_MS && segmentDistance <= 2000) {
+      const accuracyOk = (previous.accuracy == null || previous.accuracy <= MAX_ROUTE_ACCURACY_METERS)
+        && (point.accuracy == null || point.accuracy <= MAX_ROUTE_ACCURACY_METERS);
+      // Never estimate distance across telemetry gaps or implausible jumps.
+      if (dt > 0 && dt <= MAX_SEGMENT_GAP_MS && segmentDistance <= 2000 && accuracyOk) {
         distance += segmentDistance;
-        if ((previous.speedKmh ?? 0) >= MIN_MOVING_SPEED_KMH || (point.speedKmh ?? 0) >= MIN_MOVING_SPEED_KMH) {
+        if ((previous.speedKmh ?? 0) >= MIN_MOVING_SPEED_KMH || (point.speedKmh ?? 0) >= MIN_MOVING_SPEED_KMH
+          || segmentDistance / (dt / 1000) >= MIN_MOVING_SPEED_KMH / 3.6) {
           drivingMs += dt;
         }
       }
@@ -79,7 +107,6 @@ function summarizeTrip(rows, vehicleId, includePoints) {
     previous = point;
   }
 
-  // Include a stop that is still in progress at the end of the available history.
   if (stopStart != null && last) {
     const stopBegin = asMillis(stopStart);
     if (stopBegin != null && endMs - stopBegin >= 120000) {
@@ -114,21 +141,29 @@ function summarizeTrip(rows, vehicleId, includePoints) {
 }
 
 /**
- * Derive stable, independently selectable trips from retained GPS history.
- * A trip is split after a long telemetry gap; point IDs make its ID stable
- * across requests and do not require a new database migration.
+ * Derive selectable trips from retained GPS samples without changing GPS collection,
+ * transmission, authentication, or background-location services.
+ *
+ * A trip closes after a telemetry gap or a prolonged stop. If the device reports
+ * no speed, plausible displacement can still establish movement. Distances and map
+ * lines remain segmented across long gaps so missing data is never invented.
  */
-export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs = TRIP_GAP_MS, stationarySplitMs = 12 * 60 * 1000 } = {}) {
+export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs = TRIP_GAP_MS, stationarySplitMs = 8 * 60 * 1000 } = {}) {
   const valid = (Array.isArray(rows) ? rows : [])
     .filter(row => row && row.id != null && asMillis(row.observed_at) != null
-      && Number.isFinite(Number(row.latitude)) && Number.isFinite(Number(row.longitude)))
+      && numeric(row.latitude) != null && numeric(row.longitude) != null
+      && Number(row.latitude) >= -90 && Number(row.latitude) <= 90
+      && Number(row.longitude) >= -180 && Number(row.longitude) <= 180)
     .slice()
     .sort((a, b) => asMillis(a.observed_at) - asMillis(b.observed_at) || Number(a.id) - Number(b.id));
 
   const groups = [];
   let current = [], stationary = [], previous = null;
+  const addUnique = (target, row) => {
+    if (!target.length || String(target[target.length - 1].id) !== String(row.id)) target.push(row);
+  };
   const flush = () => {
-    if (current.length) groups.push(current);
+    if (current.length >= 2) groups.push(current);
     current = [];
     stationary = [];
   };
@@ -139,54 +174,47 @@ export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs 
     const previousTime = previous ? asMillis(previous.observed_at) : null;
     const rowTime = asMillis(row.observed_at);
     const gap = previousTime == null ? 0 : rowTime - previousTime;
+
     if (previous && gap > gapMs) {
-      if (stationary.length && stationaryDuration() < stationarySplitMs) current.push(...stationary);
+      if (current.length && stationary.length && stationaryDuration() < stationarySplitMs) current.push(...stationary);
       flush();
-      // Keep the first valid sample after a telemetry gap as the start candidate
-      // for the next trip; otherwise the first point is silently lost.
-      current = [row];
+      // Start a fresh candidate at the first sample after the gap.
       previous = row;
       continue;
     }
 
-    const movement = previous && gap > 0 && gap <= MAX_SEGMENT_GAP_MS
-      ? distanceMeters(previous, row) : 0;
-    const measuredSpeed = speedKmh(row.speed);
-    const isMoving = (measuredSpeed != null && measuredSpeed >= MIN_MOVING_SPEED_KMH)
-      || movement >= 12;
-
-    if (isMoving) {
+    const moving = isMoving(row, previous);
+    if (moving) {
       if (stationary.length) {
         if (stationaryDuration() >= stationarySplitMs) {
-          // A prolonged stop closes the previous trip. Do not connect the next
-          // departure to the parked vehicle's coordinates as if it were driving.
           if (current.length) {
-            current.push(stationary[0]);
-            groups.push(current);
-            current = [];
+            addUnique(current, stationary[0]);
+            flush();
           }
+          // A long stop separates trips; do not draw a line across it.
+          current = [stationary[stationary.length - 1]];
         } else {
-          current.push(...stationary);
+          stationary.forEach(point => addUnique(current, point));
         }
         stationary = [];
       }
-      current.push(row);
+      if (!current.length && previous && gap > 0 && gap <= MAX_INFERENCE_GAP_MS && (speedKmh(previous.speed) == null || speedKmh(previous.speed) >= 3)) addUnique(current, previous);
+      addUnique(current, row);
     } else if (current.length) {
-      stationary.push(row);
+      addUnique(stationary, row);
       if (stationaryDuration() >= stationarySplitMs) {
-        current.push(stationary[0]);
-        groups.push(current);
-        current = [];
-        stationary = [];
+        addUnique(current, stationary[0]);
+        flush();
       }
     }
     previous = row;
   }
 
-  if (stationary.length && stationaryDuration() < stationarySplitMs) current.push(...stationary);
-  if (current.length) groups.push(current);
+  if (current.length && stationary.length && stationaryDuration() < stationarySplitMs) {
+    stationary.forEach(point => addUnique(current, point));
+  }
+  if (current.length >= 2) groups.push(current);
 
-  // Stable ordering and IDs make each trip selectable across refreshes.
   return groups
     .filter(group => group.length >= 2)
     .map(group => summarizeTrip(group, vehicleId, includePoints))

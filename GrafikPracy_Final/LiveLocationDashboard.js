@@ -17,10 +17,10 @@ const buildLiveMapData=(current,rows)=>{
  const segments=[];let segment=[],previous=null;
  const flush=()=>{if(segment.length>1)segments.push(segment);segment=[];};
  for(const p of valid){
-   const point={latitude:Number(p.latitude),longitude:Number(p.longitude),speed:Number(p.speed||0),time:serverMillis(p.updatedAt)};
+   const point={latitude:Number(p.latitude),longitude:Number(p.longitude),speed:Number(p.speed||0),accuracy:p.accuracy==null||p.accuracy===''?null:(Number.isFinite(Number(p.accuracy))?Number(p.accuracy):null),time:serverMillis(p.updatedAt)};
    const moved=previous?distanceMeters(previous,point):0;
    const gap=previous?point.time-previous.time:0;
-   const continuous=previous&&gap>0&&gap<=15*60*1000;
+   const continuous=previous&&gap>0&&gap<=2*60*1000&&moved<=2000&&moved/(gap/1000)<=55&&(previous.accuracy==null||previous.accuracy<=100)&&(point.accuracy==null||point.accuracy<=100);
    const isMoving=point.speed*3.6>=5||moved>=25;
    if(!continuous)flush();
    if(continuous&&isMoving){
