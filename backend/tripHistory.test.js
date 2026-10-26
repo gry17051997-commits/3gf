@@ -99,8 +99,8 @@ test('buildTrips includes a stop that continues through the last GPS sample', ()
 test('buildTrips detects movement when Android supplies no speed but coordinates move plausibly', () => {
   const rows = [
     point(40, '2026-10-17T08:00:00Z', 51.0000, 17.0000, null),
-    point(41, '2026-10-17T08:03:00Z', 51.0010, 17.0000, null),
-    point(42, '2026-10-17T08:06:00Z', 51.0020, 17.0000, null)
+    point(41, '2026-10-17T08:03:00Z', 51.0030, 17.0000, null),
+    point(42, '2026-10-17T08:06:00Z', 51.0060, 17.0000, null)
   ];
   const trips = buildTrips(rows, { includePoints: true });
   assert.equal(trips.length, 1);
