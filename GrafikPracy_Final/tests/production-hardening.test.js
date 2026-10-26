@@ -371,3 +371,19 @@ test('central API requests have a 15-second timeout covering token, fetch, and r
   assert.match(block, /if\(data\?\.error!==undefined\)e\.code=data\.error/);
 });
 
+
+test('Yanosik-style trip history has chart, KPI summary, scores, and ordered gap-segmented map', async () => {
+  const panel = await fs.readFile(new URL('../TripHistoryPanel.js', import.meta.url), 'utf8');
+  const scoring = await fs.readFile(new URL('../tripHistoryScore.js', import.meta.url), 'utf8');
+  assert.match(panel, /Aktywność · ostatnie 7 dni/);
+  assert.match(panel, /Kilometry/);
+  assert.match(panel, /Czas jazdy/);
+  assert.match(panel, /Śr\. ocena/);
+  assert.match(panel, /Twoje trasy/);
+  assert.match(panel, /scoreTrip/);
+  assert.match(panel, /sort\(\(a,b\)=>Date\.parse\(a\.observedAt\)-Date\.parse\(b\.observedAt\)\)/);
+  assert.match(panel, /MAX_GAP_MS/);
+  assert.match(panel, /MAX_JUMP_M/);
+  assert.match(scoring, /export const MAX_GAP_MS = 120000/);
+  assert.match(scoring, /export const MAX_JUMP_M = 2000/);
+});
