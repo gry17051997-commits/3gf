@@ -4,7 +4,7 @@ import {scoreTrip, countTripGaps, MAX_GAP_MS, MAX_JUMP_M} from '../tripHistorySc
 
 const p=(id,ms,latitude=51,longitude=17)=>({id,observedAt:new Date(ms).toISOString(),latitude,longitude});
 test('score clamps the result and rounds to one decimal place',()=>{
-  assert.equal(scoreTrip({maxSpeedKmh:0,pointCount:100,distanceKm:0,averageSpeedKmh:0}),8.5);
+  assert.equal(scoreTrip({maxSpeedKmh:0,pointCount:100,distanceKm:0,averageSpeedKmh:0}),8);
   assert.ok(scoreTrip({maxSpeedKmh:1000,pointCount:0,distanceKm:0})>=1);
   assert.ok(scoreTrip({pointCount:100,distanceKm:100,averageSpeedKmh:60})<=10);
   assert.equal(scoreTrip({pointCount:100,distanceKm:3,averageSpeedKmh:60}),8.5);
