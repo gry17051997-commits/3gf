@@ -1,4 +1,5 @@
 import test from 'node:test';
+// Regression coverage for history derived from retained GPS points.
 import assert from 'node:assert/strict';
 import { buildTrips, distanceMeters } from './tripHistory.js';
 
