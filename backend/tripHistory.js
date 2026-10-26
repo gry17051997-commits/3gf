@@ -148,7 +148,7 @@ function summarizeTrip(rows, vehicleId, includePoints) {
  * no speed, plausible displacement can still establish movement. Distances and map
  * lines remain segmented across long gaps so missing data is never invented.
  */
-export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs = TRIP_GAP_MS, stationarySplitMs = 12 * 60 * 1000 } = {}) {
+export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs = TRIP_GAP_MS, stationarySplitMs = 8 * 60 * 1000 } = {}) {
   const valid = (Array.isArray(rows) ? rows : [])
     .filter(row => row && row.id != null && asMillis(row.observed_at) != null
       && numeric(row.latitude) != null && numeric(row.longitude) != null
