@@ -198,7 +198,7 @@ export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs 
         }
         stationary = [];
       }
-      if (!current.length && previous && gap > 0 && gap <= MAX_INFERENCE_GAP_MS\n        && (speedKmh(previous.speed) == null || speedKmh(previous.speed) >= 3)) addUnique(current, previous);
+      if (!current.length && previous && gap > 0 && gap <= MAX_INFERENCE_GAP_MS && (speedKmh(previous.speed) == null || speedKmh(previous.speed) >= 3)) addUnique(current, previous);
       addUnique(current, row);
     } else if (current.length) {
       addUnique(stationary, row);
