@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - 'fix/**'
     paths:
       - "GrafikPracy_Final/**"
       - ".github/workflows/build-apk.yml"
