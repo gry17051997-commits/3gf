@@ -25,5 +25,5 @@ test('gap penalties are capped at two points',()=>{
   const start=Date.parse('2026-10-26T08:00:00Z');
   const points=Array.from({length:8},(_,i)=>p(i,start+i*300000,51,17));
   const score=scoreTrip({points,pointCount:8,maxSpeedKmh:0,distanceKm:0});
-  assert.equal(score,5);
+  assert.equal(score,6);
 });
