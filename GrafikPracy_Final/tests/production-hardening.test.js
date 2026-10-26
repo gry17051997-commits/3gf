@@ -344,7 +344,7 @@ test('web startup does not call native-only notification or background-task setu
 test('central API client prefixes every endpoint with the backend /api mount', () => {
   const client = fs.readFileSync(new URL('../apiClient.js', import.meta.url), 'utf8');
   const server = fs.readFileSync(new URL('../../backend/server.js', import.meta.url), 'utf8');
-  assert.ok(client.includes("API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : ''"));
+  assert.ok(client.includes("API_BASE_URL=API_URL_VALID ? API_ORIGIN+'/api' : ''"));
   assert.ok(client.includes("api('/auth/login'"));
   assert.ok(server.includes("app.post('/api/auth/login'"));
 });
@@ -373,8 +373,8 @@ test('central API requests have a 15-second timeout covering token, fetch, and r
 
 
 test('Yanosik-style trip history has chart, KPI summary, scores, and ordered gap-segmented map', async () => {
-  const panel = await fs.readFile(new URL('../TripHistoryPanel.js', import.meta.url), 'utf8');
-  const scoring = await fs.readFile(new URL('../tripHistoryScore.js', import.meta.url), 'utf8');
+  const panel = fs.readFileSync(new URL('../TripHistoryPanel.js', import.meta.url), 'utf8');
+  const scoring = fs.readFileSync(new URL('../tripHistoryScore.js', import.meta.url), 'utf8');
   assert.match(panel, /Aktywność · ostatnie 7 dni/);
   assert.match(panel, /Kilometry/);
   assert.match(panel, /Czas jazdy/);
