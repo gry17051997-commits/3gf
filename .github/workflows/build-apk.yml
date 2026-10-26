@@ -10,6 +10,13 @@ on:
       - "GrafikPracy_Final/**"
       - ".github/workflows/build-apk.yml"
 
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "GrafikPracy_Final/**"
+      - ".github/workflows/build-apk.yml"
+
 permissions:
   contents: read
 
