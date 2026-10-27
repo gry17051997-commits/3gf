@@ -25,6 +25,9 @@ jobs:
     name: Validate Web + Android + Stage 3
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+      EXPO_PUBLIC_MAPTILER_KEY: ${{ secrets.EXPO_PUBLIC_MAPTILER_KEY }}
     defaults:
       run:
         working-directory: GrafikPracy_Final
@@ -41,6 +44,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Verify required build configuration
+        run: |
+          test -n "$EXPO_PUBLIC_API_URL"
+          echo "Central API URL configured."
+          test -n "$EXPO_PUBLIC_MAPTILER_KEY"
+          echo "MapTiler key configured."
       - name: Install dependencies
         run: npm install --ignore-scripts
       - name: Production hardening tests
