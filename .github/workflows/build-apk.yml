@@ -5,6 +5,14 @@ on:
   push:
     branches:
       - main
+      - 'fix/**'
+    paths:
+      - "GrafikPracy_Final/**"
+      - ".github/workflows/build-apk.yml"
+
+  pull_request:
+    branches:
+      - main
     paths:
       - "GrafikPracy_Final/**"
       - ".github/workflows/build-apk.yml"
@@ -45,6 +53,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Run GPS and production hardening tests
+        run: npm test
 
       - name: Verify central API URL
         run: |

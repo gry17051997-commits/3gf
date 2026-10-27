@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import {Platform, AppState} from 'react-native';
 import {API_BASE_URL, apiPostGps} from './apiClient';
 
@@ -9,7 +10,8 @@ export const LOCATION_CONFIG_KEY='grafik-pracy-location-config-v2';
 export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
 export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
 export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
-const LOCATION_OPTIONS_VERSION=4;
+const LOCATION_OPTIONS_VERSION=5;
+const GPS_NOTIFICATION_CHANNEL_ID='gps-tracking';
 const STALE_THRESHOLD_MS = 2.5 * 60 * 1000; // 2.5 minuty
 const LOCATION_PENDING_QUEUE_KEY = 'grafik-pracy-location-pending-queue-v1';
 const MAX_PENDING_GPS_POINTS = 250;
@@ -103,6 +105,7 @@ const LOCATION_OPTIONS={
     notificationTitle:'Grafik Pracy • GPS aktywny',
     notificationBody:'Lokalizacja auta jest udostępniana również przy zablokowanym ekranie.',
     notificationColor:'#467ff1',
+    notificationChannelId:GPS_NOTIFICATION_CHANNEL_ID,
     killServiceOnDestroy:false
   }
 };
@@ -186,6 +189,18 @@ export async function saveVehicleLocationAssignment(registration){
   return {ok:true,vehicleId:normalizeVehicleId(reg),registration:reg};
 }
 
+async function prepareGpsForegroundNotification(){
+  if(Platform.OS!=='android')return;
+  await Notifications.setNotificationChannelAsync(GPS_NOTIFICATION_CHANNEL_ID,{
+    name:'Lokalizacja GPS',
+    importance:Notifications.AndroidImportance.LOW,
+    vibrationPattern:[],
+    sound:null,
+    lockscreenVisibility:Notifications.AndroidNotificationVisibility.PUBLIC,
+    showBadge:false
+  });
+}
+
 export async function startVehicleLocationTracking({vehicleId,registration}={}){
   if(Platform.OS==='web')return {ok:false,reason:'web'};
   if(AppState.currentState!=='active')return {ok:false,reason:'app-not-active'};
@@ -202,6 +217,7 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}){
   if(!(await Location.hasServicesEnabledAsync()))return {ok:false,reason:'location-services-disabled'};
   const bg=await Location.requestBackgroundPermissionsAsync();
   if(bg.status!=='granted')return {ok:false,reason:'background-permission'};
+  await prepareGpsForegroundNotification();
   const old=await getConfig();
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,optionsVersion:LOCATION_OPTIONS_VERSION,vehicleId:normalizeVehicleId(assignment.vehicleId),registration:assignment.registration||registration||''}));
   const alreadyRunning=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
@@ -293,6 +309,7 @@ export async function ensureVehicleLocationTracking() {
   }
 
   if (!running) {
+    await prepareGpsForegroundNotification();
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, LOCATION_OPTIONS);
     restarted = true;
     await patchDiagnostics({ lastRecoveryAt: Date.now(), lastTrackingStartedAt: Date.now() });

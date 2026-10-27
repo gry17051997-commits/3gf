@@ -40,13 +40,19 @@ export async function api(path,{method='GET',body,headers={}}={}){
           signal:controller.signal
         });
         let data=null;
-        try{data=await r.json();}catch{}
+        let responseText='';
+        try{data=await r.json();}catch{try{responseText=await r.text();}catch{}}
         if(!r.ok){
-          const e=new Error(data?.error||'API_ERROR');
-          e.status=r.status;
-          if(data?.error!==undefined)e.code=data.error;
+          const statusCode=Number(r.status)||0;
+          const contentType=String(r.headers?.get?.('content-type')||'').toLowerCase();
+          const responseCode=data?.error||((statusCode===404&&contentType.includes('text/html'))?'API_ROUTE_NOT_FOUND':(statusCode>=500?'API_SERVER_'+statusCode:'API_HTTP_'+statusCode));
+          const e=new Error(responseCode);
+          e.status=statusCode;
+          e.code=responseCode;
+          e.responseContentType=contentType;
           throw e;
         }
+        if(data===null && responseText)throw new Error('API_INVALID_JSON_RESPONSE');
         return data;
       }catch(error){
         if(timedOut)throw timeoutError;

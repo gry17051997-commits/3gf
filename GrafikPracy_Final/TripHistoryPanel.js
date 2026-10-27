@@ -1,126 +1,66 @@
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {Modal, Platform, ScrollView, Text, TouchableOpacity, View} from 'react-native';
 import {WebView} from 'react-native-webview';
 import {apiGetGpsTrips, apiGetGpsTrip} from './apiClient';
+import {scoreTrip, scoreColor, MAX_GAP_MS, MAX_JUMP_M} from './tripHistoryScore';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
-
 const paletteTripColor = id => ['#2d7cff','#f97316','#a855f7','#14b8a6','#eab308','#ec4899','#22c55e','#ef4444'][[...String(id)].reduce((sum,ch)=>sum+ch.charCodeAt(0),0)%8];
-const fmtDuration = seconds => {
-  const s = Math.max(0, Number(seconds) || 0);
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-  return h ? h + ' godz. ' + m + ' min' : m + ' min';
-};
-const tripMapHtml = (points, routeId = '', matchedSegments = []) => {
-  const data = JSON.stringify((points || []).filter(p => Number.isFinite(Number(p.latitude)) && Number.isFinite(Number(p.longitude)))).replace(/</g, '\\u003c');
-  const palette = ['#2d7cff','#f97316','#a855f7','#14b8a6','#eab308','#ec4899','#22c55e','#ef4444'];
-  const routeColor = palette[[...String(routeId)].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % palette.length];
-  const tileUrl = MAPTILER_KEY ? 'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=' + MAPTILER_KEY : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-  return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#101722}.leaflet-container{height:100%;width:100%;background:#101722}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const points=' + data + ';const routeColor=' + JSON.stringify(routeColor) + ';const matched=' + JSON.stringify(matchedSegments || []) + ';const map=L.map("map").setView([51,16.8],7);let activeTileUrl=' + JSON.stringify(tileUrl) + ';let fallbackTiles=false;let tiles=L.tileLayer(activeTileUrl,{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);tiles.on("tileerror",function(){if(!fallbackTiles&&activeTileUrl.indexOf("api.maptiler.com")>=0){fallbackTiles=true;map.removeLayer(tiles);activeTileUrl="https://tile.openstreetmap.org/{z}/{x}/{y}.png";tiles=L.tileLayer(activeTileUrl,{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);}});const coords=points.map(p=>[+p.latitude,+p.longitude]);if(coords.length){const segments=[];let segment=[],previous=null;const meters=(a,b)=>{const rad=v=>v*Math.PI/180,dl=rad(b[1]-a[1]),dp=rad(b[0]-a[0]),h=Math.sin(dp/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dl/2)**2;return 6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));};points.forEach((p,i)=>{const coord=coords[i],time=Date.parse(p.observedAt);if(previous){const dt=time-previous.time;if(dt<=0||dt>120000||meters(previous.coord,coord)>2000){if(segment.length>1)segments.push(segment);segment=[];} }if(!segment.length)segment.push(coord);else segment.push(coord);previous={coord,time};});if(segment.length>1)segments.push(segment);const drawSegments=matched.length?matched:segments;drawSegments.forEach(line=>L.polyline(line,{color:routeColor,weight:5,opacity:.95}).addTo(map));points.forEach(p=>L.circleMarker([p.latitude,p.longitude],{radius:5,color:"#fff",weight:2,fillColor:routeColor,fillOpacity:1}).bindPopup((p.speedKmh==null?"Brak prędkości":Math.round(p.speedKmh)+" km/h")+"<br>"+new Date(p.observedAt).toLocaleString("pl-PL")).on("click",function(){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify({type:"gpsPoint",point:p}));}}).addTo(map));L.circleMarker(coords[0],{radius:7,color:"#fff",fillColor:"#22c55e",fillOpacity:1}).bindPopup("START").addTo(map);L.circleMarker(coords[coords.length-1],{radius:7,color:"#fff",fillColor:"#ef4444",fillOpacity:1}).addTo(map);if(coords.length>1){map.fitBounds(coords,{padding:[18,18]});}}setTimeout(()=>{map.invalidateSize(true);},250);</script></body></html>';
+const number = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+const fmtKm = value => number(value).toLocaleString('pl-PL',{minimumFractionDigits:1,maximumFractionDigits:1});
+const fmtDuration = seconds => { const s=Math.max(0,number(seconds)); const h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return h ? h+' h '+m+' min' : m+' min'; };
+const fmtDate = value => { const d=new Date(value); return Number.isNaN(d.getTime())?'Nieznana data':d.toLocaleDateString('pl-PL',{day:'numeric',month:'long',year:'numeric'}); };
+const fmtTime = value => { const d=new Date(value); return Number.isNaN(d.getTime())?'--:--':d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'}); };
+const sortedPoints = points => (points||[]).filter(p=>Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))&&Number.isFinite(Date.parse(p.observedAt))).slice().sort((a,b)=>Date.parse(a.observedAt)-Date.parse(b.observedAt));
+const tripMapHtml = (rawPoints, routeId='') => {
+  const points=sortedPoints(rawPoints).map(p=>({latitude:Number(p.latitude),longitude:Number(p.longitude),observedAt:p.observedAt,speedKmh:p.speedKmh}));
+  const data=JSON.stringify(points).replace(/</g,'\\u003c');
+  const palette=['#2d7cff','#f97316','#a855f7','#14b8a6','#eab308','#ec4899','#22c55e','#ef4444'];
+  const routeColor=palette[[...String(routeId)].reduce((s,c)=>s+c.charCodeAt(0),0)%palette.length];
+  const tileUrl=MAPTILER_KEY?'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key='+MAPTILER_KEY:'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#101722}.leaflet-container{height:100%;width:100%;background:#101722}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const points='+data+',color='+JSON.stringify(routeColor)+',map=L.map("map").setView([51,16.8],7);let url='+JSON.stringify(tileUrl)+',fallback=false,tiles=L.tileLayer(url,{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);tiles.on("tileerror",()=>{if(!fallback&&url.indexOf("api.maptiler.com")>=0){fallback=true;map.removeLayer(tiles);url="https://tile.openstreetmap.org/{z}/{x}/{y}.png";tiles=L.tileLayer(url,{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);}});const meters=(a,b)=>{const r=v=>v*Math.PI/180,dl=r(b[1]-a[1]),dp=r(b[0]-a[0]),h=Math.sin(dp/2)**2+Math.cos(r(a[0]))*Math.cos(r(b[0]))*Math.sin(dl/2)**2;return 6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));};const segments=[];let segment=[],prev=null;points.forEach(p=>{const coord=[p.latitude,p.longitude],time=Date.parse(p.observedAt);if(prev){const dt=time-prev.time,jump=meters(prev.coord,coord);if(dt<=0||dt>'+MAX_GAP_MS+'||jump>'+MAX_JUMP_M+' ){if(segment.length>1)segments.push(segment);segment=[];}}segment.push(coord);prev={coord,time};});if(segment.length>1)segments.push(segment);segments.forEach(line=>L.polyline(line,{color,weight:5,opacity:.95}).addTo(map));points.forEach(p=>L.circleMarker([p.latitude,p.longitude],{radius:4,color:"#fff",weight:1,fillColor:color,fillOpacity:1}).bindPopup((p.speedKmh==null?"Brak prędkości":Math.round(p.speedKmh)+" km/h")+"<br>"+new Date(p.observedAt).toLocaleString("pl-PL")).on("click",function(){if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:"gpsPoint",point:p}));}).addTo(map));if(points.length){const first=points[0],last=points[points.length-1];L.circleMarker([first.latitude,first.longitude],{radius:7,color:"#fff",fillColor:"#22c55e",fillOpacity:1}).bindPopup("START").addTo(map);L.circleMarker([last.latitude,last.longitude],{radius:7,color:"#fff",fillColor:"#ef4444",fillOpacity:1}).bindPopup("KONIEC").addTo(map);if(points.length>=2)map.fitBounds(points.map(p=>[p.latitude,p.longitude]),{padding:[18,18]});else map.setView([first.latitude,first.longitude],15);}setTimeout(()=>map.invalidateSize(true),250);</script></body></html>';
 };
 
 export default function TripHistoryPanel({vehicleId}) {
-  const [trips, setTrips] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [selectedPoint, setSelectedPoint] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState('');
-  const [matchedSegments, setMatchedSegments] = useState([]);
-  const [matchingStatus, setMatchingStatus] = useState('');
-  useEffect(() => {
-    let active = true;
-    let inFlight = false;
-    const loadTrips = async (manual = false) => {
-      if (!vehicleId || inFlight) return;
-      inFlight = true;
-      if (manual && active) setRefreshing(true);
-      try {
-        const rows = await apiGetGpsTrips(vehicleId);
-        if (active) { setTrips(rows || []); setError(''); }
-      } catch (e) {
-        if (active) setError(String(e?.message || 'Nie udało się pobrać historii tras'));
-      } finally {
-        inFlight = false;
-        if (manual && active) setRefreshing(false);
-      }
-    };
-    if (!vehicleId) { setTrips([]); return () => { active = false; }; }
-    loadTrips();
-    const timer = setInterval(() => loadTrips(), 30000);
-    return () => { active = false; clearInterval(timer); };
-  }, [vehicleId]);
-  const refreshTrips = async () => {
-    if (refreshing || !vehicleId) return;
-    setRefreshing(true);
-    try { const rows = await apiGetGpsTrips(vehicleId); setTrips(rows || []); setError(''); }
-    catch (e) { setError(String(e?.message || 'Nie udało się odświeżyć historii tras')); }
-    finally { setRefreshing(false); }
-  };
-  const openTrip = async trip => {
-    try {
-      setLoading(true); setError(''); setMatchedSegments([]); setMatchingStatus('Ślad pokazuje zapisane punkty GPS, bez zewnętrznego routingu.');
-      const detail = await apiGetGpsTrip(vehicleId, trip.id); setSelected(detail);
-    } catch (e) { setError(String(e?.message || 'Nie udało się otworzyć trasy')); }
-    finally { setLoading(false); }
-  };
-  const card = {backgroundColor:'#141922',borderRadius:18,padding:14,marginBottom:10,borderWidth:1,borderColor:'#303a4a'};
-  const title = {color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7};
-  const sub = {color:'#aeb8c8',fontSize:12,marginTop:4};
-  const row = {paddingVertical:10,borderBottomWidth:1,borderBottomColor:'#303a4a'};
-  const button = {backgroundColor:'#303a4a',borderRadius:10,padding:11,alignItems:'center',marginTop:10};
-  const buttonText = {color:'#fff',fontWeight:'800'};
-  return <View style={card}>
-    <Text style={title}>🛣️ HISTORIA PRZEJAZDÓW · 7 DNI</Text>
-    <Text style={sub}>Każdy przejazd ma osobną mapę i statystyki. Historia odświeża się automatycznie co 30 s.</Text>
-    <TouchableOpacity style={button} onPress={refreshTrips} disabled={refreshing}>
-      <Text style={buttonText}>{refreshing ? 'ODŚWIEŻANIE…' : 'ODŚWIEŻ HISTORIĘ'}</Text>
-    </TouchableOpacity>
-    {error ? <Text style={[sub,{color:'#f0b35a'}]}>{error}</Text> : null}
-    {trips.length ? trips.map(trip => <TouchableOpacity key={trip.id} style={[row,{borderLeftWidth:4,borderLeftColor:paletteTripColor(trip.id),paddingLeft:10}]} disabled={loading} onPress={() => openTrip(trip)}>
-      <Text style={{color:'#fff',fontWeight:'800'}}>{new Date(trip.startedAt).toLocaleDateString('pl-PL')} · {new Date(trip.startedAt).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})} do {new Date(trip.endedAt).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}</Text>
-      <Text style={{color:'#fff',fontSize:17,fontWeight:'900',marginTop:5}}>{Number(trip.distanceKm).toFixed(2)} km · {fmtDuration(trip.durationSeconds)}</Text>
-      <Text style={sub}>Śr. {trip.averageSpeedKmh} km/h · maks. {trip.maxSpeedKmh} km/h · {trip.pointCount} punktów GPS ›</Text>
-    </TouchableOpacity>) : <Text style={sub}>Brak zarejestrowanych przejazdów z ostatnich 7 dni.</Text>}
-    <Modal visible={!!selected} transparent animationType="slide" onRequestClose={() => setSelected(null)}>
-      <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.78)',justifyContent:'center',padding:12}}>
-        <View style={{backgroundColor:'#141922',borderRadius:18,padding:14,maxHeight:'94%',borderWidth:1,borderColor:'#303a4a'}}>
-          <ScrollView>
-            <Text style={title}>📍 SZCZEGÓŁY PRZEJAZDU</Text>
-            {selected ? <>
-              <Text style={sub}>{new Date(selected.startedAt).toLocaleString('pl-PL')} do {new Date(selected.endedAt).toLocaleString('pl-PL')}</Text>
-              <Text style={sub}>Dystans: {selected.distanceKm} km · czas całkowity: {fmtDuration(selected.durationSeconds)}</Text>
-              <Text style={sub}>{matchingStatus || 'Mapa przejazdu'}</Text>
-              <Text style={sub}>Czas jazdy: {fmtDuration(selected.drivingSeconds)} · postoje: {selected.stops?.length || 0}</Text>
-              <Text style={sub}>Średnia podczas jazdy: {selected.averageSpeedKmh} km/h</Text>
-              <Text style={sub}>Średnia z postojami: {selected.averageIncludingStopsKmh} km/h · maksymalna: {selected.maxSpeedKmh} km/h</Text>
-              <View style={{height:260,marginTop:12,borderRadius:12,overflow:'hidden',backgroundColor:'#101722'}}>
-                {Platform.OS === 'web' ? <iframe title="Mapa wybranego przejazdu" srcDoc={tripMapHtml(selected.points, selected.id, matchedSegments)} style={{width:'100%',height:'100%',border:0}} /> : <WebView key={selected.id} originWhitelist={['*']} source={{html:tripMapHtml(selected.points, selected.id, matchedSegments)}} javaScriptEnabled domStorageEnabled androidLayerType="software" onMessage={event => { try { const message = JSON.parse(event.nativeEvent.data); if (message?.type === "gpsPoint" && message.point) setSelectedPoint(message.point); } catch {} }} style={{flex:1}} />}
-              </View>
-              <Text style={[title,{marginTop:14}]}>PUNKTY GPS</Text>
-              {(selected.points || []).map(point => <TouchableOpacity key={point.id} style={row} onPress={() => setSelectedPoint(point)}>
-                <Text style={{color:'#fff',fontWeight:'800'}}>{new Date(point.observedAt).toLocaleString('pl-PL')} · {point.speedKmh == null ? 'brak prędkości' : Math.round(point.speedKmh) + ' km/h'}</Text>
-                <Text style={sub}>±{Math.round(point.accuracy || 0)} m · {Number(point.latitude).toFixed(5)}, {Number(point.longitude).toFixed(5)} · szczegóły ›</Text>
-              </TouchableOpacity>)}
-            </> : null}
-          </ScrollView>
-          <TouchableOpacity style={button} onPress={() => setSelected(null)}><Text style={buttonText}>ZAMKNIJ PRZEJAZD</Text></TouchableOpacity>
-        </View>
-      </View>
+  const [trips,setTrips]=useState([]),[selected,setSelected]=useState(null),[selectedPoint,setSelectedPoint]=useState(null);
+  const [loading,setLoading]=useState(false),[refreshing,setRefreshing]=useState(false),[initialLoading,setInitialLoading]=useState(true),[error,setError]=useState('');
+  const loadTrips=useCallback(async(manual=false)=>{if(!vehicleId)return;if(manual)setRefreshing(true);try{const rows=await apiGetGpsTrips(vehicleId);setTrips(Array.isArray(rows)?rows:[]);setError('');}catch(e){setError(String(e?.message||'Nie udało się pobrać historii tras. Sprawdź połączenie i spróbuj ponownie.'));}finally{setInitialLoading(false);setRefreshing(false);}},[vehicleId]);
+  useEffect(()=>{let active=true;let inFlight=false;const load=async()=>{if(!vehicleId||inFlight)return;inFlight=true;try{const rows=await apiGetGpsTrips(vehicleId);if(active){setTrips(Array.isArray(rows)?rows:[]);setError('');}}catch(e){if(active)setError(String(e?.message||'Nie udało się pobrać historii tras.'));}finally{inFlight=false;if(active)setInitialLoading(false);}};setInitialLoading(true);load();const timer=setInterval(load,30000);return()=>{active=false;clearInterval(timer);};},[vehicleId]);
+  const ordered=useMemo(()=>trips.slice().sort((a,b)=>Date.parse(b.startedAt)-Date.parse(a.startedAt)),[trips]);
+  const scored=useMemo(()=>ordered.map(t=>({...t,localScore:scoreTrip(t)})),[ordered]);
+  const totalKm=scored.reduce((s,t)=>s+number(t.distanceKm),0),totalDriving=scored.reduce((s,t)=>s+number(t.drivingSeconds),0);
+  const avgScore=scored.length?scored.reduce((s,t)=>s+t.localScore,0)/scored.length:0;
+  const days=useMemo(()=>{const result=[];const now=new Date();for(let i=6;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth(),now.getDate()-i);const key=d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate();result.push({key,label:d.toLocaleDateString('pl-PL',{weekday:'short'}).replace('.',''),km:0});}for(const t of scored){const d=new Date(t.startedAt),key=d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(),day=result.find(x=>x.key===key);if(day)day.km+=number(t.distanceKm);}return result;},[scored]);
+  const maxDayKm=Math.max(1,...days.map(d=>d.km));
+  const openTrip=async trip=>{setLoading(true);setError('');try{const detail=await apiGetGpsTrip(vehicleId,trip.id);setSelected({...detail,localScore:scoreTrip(detail)});}catch(e){setError(String(e?.message||'Nie udało się otworzyć szczegółów przejazdu.'));}finally{setLoading(false);}};
+  const card={backgroundColor:'#141922',borderRadius:16,padding:14,marginBottom:12,borderWidth:1,borderColor:'#303a4a'};
+  const title={color:'#fff',fontSize:19,fontWeight:'900'},sub={color:'#aeb8c8',fontSize:12,marginTop:4},button={backgroundColor:'#263448',borderRadius:10,padding:11,alignItems:'center'},btnText={color:'#fff',fontWeight:'800'};
+  const stat=(value,label)=><View key={label} style={{width:'48%',backgroundColor:'#141922',borderColor:'#303a4a',borderWidth:1,borderRadius:14,padding:13,marginBottom:9}}><Text style={{color:'#fff',fontSize:23,fontWeight:'900'}}>{value}</Text><Text style={sub}>{label}</Text></View>;
+  return <View style={{flex:1}}>
+    <ScrollView style={{flex:1}} contentContainerStyle={{padding:12,paddingBottom:32}}>
+      <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:12}}><Text style={title}>Historia tras</Text><TouchableOpacity style={button} onPress={()=>loadTrips(true)} disabled={refreshing}><Text style={btnText}>{refreshing?'Odświeżam…':'↻ Odśwież'}</Text></TouchableOpacity></View>
+      {error?<View style={[card,{borderColor:'#b45309'}]}><Text style={{color:'#fbbf24',fontWeight:'800'}}>Nie udało się wczytać danych</Text><Text style={sub}>{error}</Text></View>:null}
+      <View style={card}><Text style={{color:'#fff',fontSize:15,fontWeight:'900',marginBottom:12}}>Aktywność · ostatnie 7 dni</Text><View style={{height:112,flexDirection:'row',alignItems:'flex-end',justifyContent:'space-around'}}>{days.map(d=><View key={d.key} style={{flex:1,alignItems:'center',justifyContent:'flex-end',height:'100%'}}><Text style={{color:'#aeb8c8',fontSize:10,marginBottom:4}}>{d.km?fmtKm(d.km):''}</Text><View style={{width:18,height:Math.max(3,d.km/maxDayKm*72),borderRadius:5,backgroundColor:d.km?'#3f78ed':'#303a4a'}}/><Text style={{color:'#aeb8c8',fontSize:10,marginTop:5}}>{d.label}</Text></View>)}</View><Text style={sub}>Kilometry według daty rozpoczęcia przejazdu</Text></View>
+      <View style={{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between'}}>{stat(fmtKm(totalKm),'Kilometry')}{stat(String(scored.length),'Trasy')}{stat(fmtDuration(totalDriving),'Czas jazdy')}{stat(avgScore?avgScore.toLocaleString('pl-PL',{minimumFractionDigits:1,maximumFractionDigits:1}):'0,0','Śr. ocena')}</View>
+      <Text style={{color:'#fff',fontSize:17,fontWeight:'900',marginTop:4,marginBottom:10}}>Twoje trasy</Text>
+      {initialLoading?<View style={card}><Text style={sub}>Wczytywanie historii tras…</Text></View>:null}
+      {!initialLoading&&!error&&!scored.length?<View style={card}><Text style={{color:'#fff',fontWeight:'800'}}>Brak zarejestrowanych tras</Text><Text style={sub}>Gdy pojawią się przejazdy zapisane przez GPS, zobaczysz je tutaj.</Text></View>:null}
+      {scored.map(trip=><TouchableOpacity key={trip.id} style={[card,{flexDirection:'row',alignItems:'center',padding:12}]} disabled={loading} onPress={()=>openTrip(trip)}>
+        <View style={{width:48,height:48,borderRadius:24,backgroundColor:scoreColor(trip.localScore),alignItems:'center',justifyContent:'center',marginRight:12}}><Text style={{color:'#101722',fontWeight:'900',fontSize:15}}>{trip.localScore.toFixed(1).replace('.',',')}</Text></View>
+        <View style={{flex:1}}><Text style={{color:'#fff',fontWeight:'900',fontSize:14}}>{fmtDate(trip.startedAt)}</Text><Text style={sub}>{fmtKm(trip.distanceKm)} km · {fmtDuration(trip.drivingSeconds)} · {fmtTime(trip.startedAt)}</Text></View><Text style={{color:'#aeb8c8',fontSize:24}}>›</Text>
+      </TouchableOpacity>)}
+    </ScrollView>
+    <Modal visible={!!selected} transparent animationType="slide" onRequestClose={()=>setSelected(null)}>
+      <View style={{flex:1,backgroundColor:'rgba(0,0,0,.82)',justifyContent:'center',padding:10}}><View style={{backgroundColor:'#101722',borderRadius:18,padding:14,maxHeight:'96%',borderWidth:1,borderColor:'#303a4a'}}>
+        <ScrollView>
+          {selected?<><Text style={title}>Szczegóły przejazdu</Text><Text style={sub}>{fmtDate(selected.startedAt)} · {fmtTime(selected.startedAt)} – {fmtTime(selected.endedAt)}</Text>
+          <View style={{height:260,marginTop:12,borderRadius:12,overflow:'hidden',backgroundColor:'#101722'}}>{Platform.OS==='web'?<iframe title="Mapa przejazdu" srcDoc={tripMapHtml(selected.points,selected.id)} style={{width:'100%',height:'100%',border:0}}/>:<WebView key={selected.id} originWhitelist={['*']} source={{html:tripMapHtml(selected.points,selected.id)}} javaScriptEnabled domStorageEnabled androidLayerType="software" onMessage={e=>{try{const m=JSON.parse(e.nativeEvent.data);if(m?.type==='gpsPoint'&&m.point)setSelectedPoint(m.point);}catch{}}} style={{flex:1,width:'100%'}}/>}</View>
+          <View style={{flexDirection:'row',alignItems:'center',marginTop:12}}><View style={{backgroundColor:scoreColor(selected.localScore),paddingHorizontal:12,paddingVertical:8,borderRadius:20}}><Text style={{color:'#101722',fontWeight:'900'}}>Ocena {selected.localScore.toFixed(1).replace('.',',')}/10</Text></View><Text style={[sub,{marginLeft:10,flex:1}]}>Ocena lokalna na podstawie zapisanych danych GPS</Text></View>
+          {[[ 'Czas jazdy',fmtDuration(selected.drivingSeconds)],['Dystans',fmtKm(selected.distanceKm)+' km'],['Czas całkowity',fmtDuration(selected.durationSeconds)],['Postoje',String(selected.stops?.length||0)+(selected.stops?.length?' · '+fmtDuration((selected.stops||[]).reduce((s,x)=>s+number(x.durationSeconds||x.stopSeconds),0)):'')],['Średnia prędkość (jazda)',number(selected.averageSpeedKmh).toLocaleString('pl-PL',{maximumFractionDigits:1})+' km/h'],['Maks. prędkość',number(selected.maxSpeedKmh).toLocaleString('pl-PL',{maximumFractionDigits:1})+' km/h']].map(([label,value])=><View key={label} style={{flexDirection:'row',justifyContent:'space-between',paddingVertical:11,borderBottomWidth:1,borderBottomColor:'#303a4a'}}><Text style={{color:'#aeb8c8',flex:1}}>{label}</Text><Text style={{color:'#fff',fontWeight:'800',marginLeft:8}}>{value}</Text></View>)}
+          <Text style={{color:'#fff',fontWeight:'900',fontSize:16,marginTop:15}}>Punkty GPS ({selected.points?.length||0})</Text>{sortedPoints(selected.points).map((point,i)=><TouchableOpacity key={point.id||String(point.observedAt)+i} style={{paddingVertical:9,borderBottomWidth:1,borderBottomColor:'#303a4a'}} onPress={()=>setSelectedPoint(point)}><Text style={{color:'#fff',fontWeight:'700'}}>{fmtTime(point.observedAt)} · {point.speedKmh==null?'brak prędkości':Math.round(point.speedKmh)+' km/h'}</Text><Text style={sub}>±{Math.round(point.accuracy||0)} m · {Number(point.latitude).toFixed(5)}, {Number(point.longitude).toFixed(5)} · Szczegóły ›</Text></TouchableOpacity>)}</>:null}
+        </ScrollView><TouchableOpacity style={[button,{marginTop:10}]} onPress={()=>setSelected(null)}><Text style={btnText}>Zamknij</Text></TouchableOpacity>
+      </View></View>
     </Modal>
-    <Modal visible={!!selectedPoint} transparent animationType="fade" onRequestClose={() => setSelectedPoint(null)}>
-      <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.78)',justifyContent:'center',padding:20}}>
-        <View style={{backgroundColor:'#141922',borderRadius:16,padding:16}}>
-          <Text style={title}>KONKRETNY POMIAR GPS</Text>
-          {selectedPoint ? <>
-            <Text style={sub}>Godzina: {new Date(selectedPoint.observedAt).toLocaleString('pl-PL')}</Text>
-            <Text style={{color:'#fff',fontSize:24,fontWeight:'900',marginTop:8}}>{selectedPoint.speedKmh == null ? 'Brak pomiaru prędkości' : Math.round(selectedPoint.speedKmh) + ' km/h'}</Text>
-            <Text style={sub}>Dokładność GPS: ±{Math.round(selectedPoint.accuracy || 0)} m</Text>
-            <Text style={sub}>Współrzędne: {Number(selectedPoint.latitude).toFixed(6)}, {Number(selectedPoint.longitude).toFixed(6)}</Text>
-          </> : null}
-          <TouchableOpacity style={button} onPress={() => setSelectedPoint(null)}><Text style={buttonText}>WRÓĆ DO PRZEJAZDU</Text></TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
+    <Modal visible={!!selectedPoint} transparent animationType="fade" onRequestClose={()=>setSelectedPoint(null)}><View style={{flex:1,backgroundColor:'rgba(0,0,0,.8)',justifyContent:'center',padding:20}}><View style={card}><Text style={title}>Pomiar GPS</Text>{selectedPoint?<><Text style={sub}>Godzina: {new Date(selectedPoint.observedAt).toLocaleString('pl-PL')}</Text><Text style={{color:'#fff',fontSize:24,fontWeight:'900',marginTop:8}}>{selectedPoint.speedKmh==null?'Brak prędkości':Math.round(selectedPoint.speedKmh)+' km/h'}</Text><Text style={sub}>Dokładność: ±{Math.round(selectedPoint.accuracy||0)} m</Text><Text style={sub}>Współrzędne: {Number(selectedPoint.latitude).toFixed(6)}, {Number(selectedPoint.longitude).toFixed(6)}</Text></>:null}<TouchableOpacity style={[button,{marginTop:12}]} onPress={()=>setSelectedPoint(null)}><Text style={btnText}>Wróć do przejazdu</Text></TouchableOpacity></View></View></Modal>
   </View>;
 }
