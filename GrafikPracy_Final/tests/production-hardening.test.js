@@ -367,8 +367,8 @@ test('central API requests have a 15-second timeout covering token, fetch, and r
   assert.match(block, /finally\s*\{[\s\S]*?clearTimeout\(timeoutId\)/);
   assert.match(block, /const t=await token\(\)/);
   assert.match(block, /data=await r\.json\(\)/);
-  assert.match(block, /e\.status=r\.status/);
-  assert.match(block, /if\(data\?\.error!==undefined\)e\.code=data\.error/);
+  assert.match(block, /e\.status=statusCode/);
+  assert.match(block, /e\.code=responseCode/);
 });
 
 
