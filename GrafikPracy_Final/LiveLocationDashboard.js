@@ -85,17 +85,23 @@ const buildGpsEvents=rows=>{
  const classified=[];let previous=null,lastStable=false;
  for(const point of points){
   const t=serverMillis(point.updatedAt),gap=previous?t-serverMillis(previous.updatedAt):0,moved=previous?distanceMeters(previous,point):0;
+  const accuracy=Math.max(0,Number(point.accuracy||0));
+  const previousAccuracy=Math.max(0,Number(previous?.accuracy||0));
   const gpsSpeed=Math.max(0,Number(point.speed||0)*3.6);
-  const derivedSpeed=previous&&gap>0&&gap<=180000&&moved>=25?moved/gap*3600:0;
+  // Derived speed is only useful when the GPS fix is reasonably accurate and
+  // the displacement is larger than likely position noise.
+  const derivedSpeed=previous&&gap>0&&gap<=120000&&moved>=50&&accuracy<=35&&previousAccuracy<=35?moved/gap*3600:0;
   const speed=Math.max(gpsSpeed,derivedSpeed);
-  let moving=speed>=8||moved>=80;
-  if(speed>5&&speed<8&&moved<80)moving=lastStable;
+  // Do not classify a single GPS jump as driving. Require either a credible
+  // speed above 9 km/h or a >=50 m displacement with a credible derived speed.
+  let moving=(gpsSpeed>=9&&accuracy<=50)||(derivedSpeed>=9&&moved>=50);
+  if(speed>5&&speed<9&&moved<50)moving=lastStable;
   classified.push({point,t,moving,speed,moved,gap});
   if(classified.length>=3){
    const a=classified[classified.length-3],b=classified[classified.length-2],c=classified[classified.length-1];
    if(a.moving===c.moving&&b.moving!==a.moving&&b.gap<=180000&&c.gap<=180000)b.moving=a.moving;
   }
-  if(speed>=8||moved>=80)lastStable=true;else if(speed<=5&&moved<40)lastStable=false;
+  if(moving)lastStable=true;else if(speed<=5&&moved<40)lastStable=false;
   previous=point;
  }
  const events=[];
