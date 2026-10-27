@@ -5,6 +5,46 @@ import {apiGetGpsTrips, apiGetGpsTrip} from './apiClient';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
 
+const tripPointMillis = point => {
+  const value = point?.observedAt ?? point?.observed_at ?? point?.timestamp;
+  if (value == null || value === '') return null;
+  const millis = typeof value === 'number' ? value : Date.parse(value);
+  return Number.isFinite(millis) ? millis : null;
+};
+
+export function normalizeTripPoints(points = []) {
+  const safePoints = Array.isArray(points) ? points : [];
+  const valid = safePoints
+    .filter(point => {
+      if (!point) return false;
+      const latitude = Number(point.latitude), longitude = Number(point.longitude);
+      return Number.isFinite(latitude) && Number.isFinite(longitude)
+        && latitude >= -90 && latitude <= 90
+        && longitude >= -180 && longitude <= 180
+        && tripPointMillis(point) != null;
+    })
+    .map(point => {
+      const observedAt = point.observedAt ?? point.observed_at ?? point.timestamp;
+      return {
+        ...point,
+        latitude: Number(point.latitude),
+        longitude: Number(point.longitude),
+        observedAt: new Date(tripPointMillis(point)).toISOString()
+      };
+    })
+    .sort((a, b) => tripPointMillis(a) - tripPointMillis(b)
+      || String(a.id ?? '').localeCompare(String(b.id ?? '')));
+
+  return valid.filter((point, index, list) => {
+    if (index === 0) return true;
+    const previous = list[index - 1];
+    const sameTime = tripPointMillis(previous) === tripPointMillis(point);
+    const samePosition = Math.abs(previous.latitude - point.latitude) < 1e-9
+      && Math.abs(previous.longitude - point.longitude) < 1e-9;
+    return !(sameTime && samePosition);
+  });
+}
+
 const paletteTripColor = id => ['#2d7cff','#f97316','#a855f7','#14b8a6','#eab308','#ec4899','#22c55e','#ef4444'][[...String(id)].reduce((sum,ch)=>sum+ch.charCodeAt(0),0)%8];
 const fmtDuration = seconds => {
   const s = Math.max(0, Number(seconds) || 0);
@@ -12,11 +52,12 @@ const fmtDuration = seconds => {
   return h ? h + ' godz. ' + m + ' min' : m + ' min';
 };
 const tripMapHtml = (points, routeId = '', matchedSegments = []) => {
-  const data = JSON.stringify((points || []).filter(p => Number.isFinite(Number(p.latitude)) && Number.isFinite(Number(p.longitude)))).replace(/</g, '\\u003c');
+  const normalizedPoints = normalizeTripPoints(points);
+  const data = JSON.stringify(normalizedPoints).replace(/</g, '\\u003c');
   const palette = ['#2d7cff','#f97316','#a855f7','#14b8a6','#eab308','#ec4899','#22c55e','#ef4444'];
   const routeColor = palette[[...String(routeId)].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % palette.length];
   const tileUrl = MAPTILER_KEY ? 'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=' + MAPTILER_KEY : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-  return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#101722}.leaflet-container{height:100%;width:100%;background:#101722}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const points=' + data + ';const routeColor=' + JSON.stringify(routeColor) + ';const matched=' + JSON.stringify(matchedSegments || []) + ';const map=L.map("map").setView([51,16.8],7);let activeTileUrl=' + JSON.stringify(tileUrl) + ';let fallbackTiles=false;let tiles=L.tileLayer(activeTileUrl,{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);tiles.on("tileerror",function(){if(!fallbackTiles&&activeTileUrl.indexOf("api.maptiler.com")>=0){fallbackTiles=true;map.removeLayer(tiles);activeTileUrl="https://tile.openstreetmap.org/{z}/{x}/{y}.png";tiles=L.tileLayer(activeTileUrl,{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);}});const coords=points.map(p=>[+p.latitude,+p.longitude]);if(coords.length){const segments=[];let segment=[],previous=null;const meters=(a,b)=>{const rad=v=>v*Math.PI/180,dl=rad(b[1]-a[1]),dp=rad(b[0]-a[0]),h=Math.sin(dp/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dl/2)**2;return 6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));};points.forEach((p,i)=>{const coord=coords[i],time=Date.parse(p.observedAt);if(previous){const dt=time-previous.time;if(dt<=0||dt>120000||meters(previous.coord,coord)>2000){if(segment.length>1)segments.push(segment);segment=[];} }if(!segment.length)segment.push(coord);else segment.push(coord);previous={coord,time};});if(segment.length>1)segments.push(segment);const drawSegments=matched.length?matched:segments;drawSegments.forEach(line=>L.polyline(line,{color:routeColor,weight:5,opacity:.95}).addTo(map));points.forEach(p=>L.circleMarker([p.latitude,p.longitude],{radius:5,color:"#fff",weight:2,fillColor:routeColor,fillOpacity:1}).bindPopup((p.speedKmh==null?"Brak prędkości":Math.round(p.speedKmh)+" km/h")+"<br>"+new Date(p.observedAt).toLocaleString("pl-PL")).on("click",function(){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify({type:"gpsPoint",point:p}));}}).addTo(map));L.circleMarker(coords[0],{radius:7,color:"#fff",fillColor:"#22c55e",fillOpacity:1}).bindPopup("START").addTo(map);L.circleMarker(coords[coords.length-1],{radius:7,color:"#fff",fillColor:"#ef4444",fillOpacity:1}).addTo(map);if(coords.length>1){map.fitBounds(coords,{padding:[18,18]});}}setTimeout(()=>{map.invalidateSize(true);},250);</script></body></html>';
+  return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#101722}.leaflet-container{height:100%;width:100%;background:#101722}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const points=' + data + ';const routeColor=' + JSON.stringify(routeColor) + ';const matched=' + JSON.stringify(matchedSegments || []) + ';const map=L.map("map").setView([51,16.8],7);const routeLayer=L.layerGroup().addTo(map);let activeTileUrl=' + JSON.stringify(tileUrl) + ';let fallbackTiles=false;let tiles=L.tileLayer(activeTileUrl,{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);tiles.on("tileerror",function(){if(!fallbackTiles&&activeTileUrl.indexOf("api.maptiler.com")>=0){fallbackTiles=true;map.removeLayer(tiles);activeTileUrl="https://tile.openstreetmap.org/{z}/{x}/{y}.png";tiles=L.tileLayer(activeTileUrl,{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);}});const coords=points.map(p=>[+p.latitude,+p.longitude]);if(coords.length){const segments=[];let segment=[],previous=null;const meters=(a,b)=>{const rad=v=>v*Math.PI/180,dl=rad(b[1]-a[1]),dp=rad(b[0]-a[0]),h=Math.sin(dp/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dl/2)**2;return 6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));};points.forEach((p,i)=>{const coord=coords[i],time=Date.parse(p.observedAt);if(previous){const dt=time-previous.time;if(dt<=0||dt>120000||meters(previous.coord,coord)>2000){if(segment.length>1)segments.push(segment);segment=[];} }if(!segment.length)segment.push(coord);else segment.push(coord);previous={coord,time};});if(segment.length>1)segments.push(segment);const drawSegments=matched.length?matched:segments;routeLayer.clearLayers();drawSegments.forEach(line=>{const safeLine=(Array.isArray(line)?line:[]).filter(p=>Array.isArray(p)&&p.length>=2&&Number.isFinite(Number(p[0]))&&Number.isFinite(Number(p[1]))&&Math.abs(Number(p[0]))<=90&&Math.abs(Number(p[1]))<=180).map(p=>[Number(p[0]),Number(p[1])]);if(safeLine.length>1)L.polyline(safeLine,{color:routeColor,weight:5,opacity:.95}).addTo(routeLayer);});points.forEach(p=>L.circleMarker([p.latitude,p.longitude],{radius:5,color:"#fff",weight:2,fillColor:routeColor,fillOpacity:1}).bindPopup((p.speedKmh==null?"Brak prędkości":Math.round(p.speedKmh)+" km/h")+"<br>"+new Date(p.observedAt).toLocaleString("pl-PL")).on("click",function(){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify({type:"gpsPoint",point:p}));}}).addTo(routeLayer));L.circleMarker(coords[0],{radius:7,color:"#fff",fillColor:"#22c55e",fillOpacity:1}).bindPopup("START").addTo(routeLayer);L.circleMarker(coords[coords.length-1],{radius:7,color:"#fff",fillColor:"#ef4444",fillOpacity:1}).addTo(routeLayer);if(coords.length>1){map.fitBounds(coords,{padding:[18,18]});}}setTimeout(()=>{map.invalidateSize(true);},250);</script></body></html>';
 };
 
 export default function TripHistoryPanel({vehicleId}) {

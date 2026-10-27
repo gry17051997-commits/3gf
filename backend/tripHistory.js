@@ -120,10 +120,25 @@ function summarizeTrip(rows, vehicleId, includePoints) {
  */
 export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs = TRIP_GAP_MS, stationarySplitMs = 12 * 60 * 1000 } = {}) {
   const valid = (Array.isArray(rows) ? rows : [])
-    .filter(row => row && row.id != null && asMillis(row.observed_at) != null
-      && Number.isFinite(Number(row.latitude)) && Number.isFinite(Number(row.longitude)))
+    .filter(row => {
+      if (!row || row.id == null || row.observed_at == null || row.observed_at === '') return false;
+      const time = asMillis(row.observed_at);
+      const latitude = numeric(row.latitude), longitude = numeric(row.longitude);
+      return time != null
+        && latitude != null && latitude >= -90 && latitude <= 90
+        && longitude != null && longitude >= -180 && longitude <= 180;
+    })
     .slice()
-    .sort((a, b) => asMillis(a.observed_at) - asMillis(b.observed_at) || Number(a.id) - Number(b.id));
+    .sort((a, b) => asMillis(a.observed_at) - asMillis(b.observed_at)
+      || String(a.id).localeCompare(String(b.id)))
+    .filter((row, index, list) => {
+      if (index === 0) return true;
+      const previous = list[index - 1];
+      const sameTime = asMillis(previous.observed_at) === asMillis(row.observed_at);
+      const samePosition = Math.abs(Number(previous.latitude) - Number(row.latitude)) < 1e-9
+        && Math.abs(Number(previous.longitude) - Number(row.longitude)) < 1e-9;
+      return !(sameTime && samePosition);
+    });
 
   const groups = [];
   let current = [], stationary = [], previous = null;
