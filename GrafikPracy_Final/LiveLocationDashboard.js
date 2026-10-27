@@ -13,15 +13,20 @@ const ageText=ts=>{const m=Math.max(0,Math.floor((Date.now()-serverMillis(ts))/6
 const geocodeAddress=async point=>{const lat=Number(point?.latitude),lon=Number(point?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;try{const res=await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='+encodeURIComponent(lat)+'&longitude='+encodeURIComponent(lon)+'&localityLanguage=pl',{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),locality=d.city||d.locality||d.principalSubdivision||'',road=d.localityInfo?.informative?.find(x=>/street|road|ulica|droga/i.test(x.description||''))?.name||'';const address=[locality,road].filter(Boolean).join(', ');if(address)return address;}}catch{}try{const res=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=pl&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon),{headers:{Accept:'application/json'}});if(res.ok){const d=await res.json(),a=d?.address||{},locality=a.city||a.town||a.village||a.municipality||a.suburb||a.county||'',road=a.road||a.pedestrian||a.residential||a.highway||'',house=a.house_number||'',ref=a.ref||'';return [locality,ref&&ref!==road?ref:'',road+(house?' '+house:'')].filter(Boolean).join(', ')||d.name||null;}}catch{}return null;};
 const mapUrl=loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;const d=0.006;return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;};
 const buildLiveMapData=(current,rows)=>{
- const valid=(rows||[]).filter(p=>Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))&&serverMillis(p.updatedAt)>0).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
+ const valid=(rows||[]).filter(p=>Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))&&serverMillis(p.updatedAt)>0&&(!(Number(p.accuracy)>0)||Number(p.accuracy)<=50)).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
  const segments=[];let segment=[],previous=null;
  const flush=()=>{if(segment.length>1)segments.push(segment);segment=[];};
  for(const p of valid){
-   const point={latitude:Number(p.latitude),longitude:Number(p.longitude),speed:Number(p.speed||0),time:serverMillis(p.updatedAt)};
+   const point={latitude:Number(p.latitude),longitude:Number(p.longitude),speed:Number(p.speed||0),accuracy:Number(p.accuracy||0),time:serverMillis(p.updatedAt)};
    const moved=previous?distanceMeters(previous,point):0;
    const gap=previous?point.time-previous.time:0;
    const continuous=previous&&gap>0&&gap<=15*60*1000;
-   const isMoving=point.speed*3.6>=5||moved>=25;
+   const accuracyOk=point.accuracy<=0||point.accuracy<=50;
+   const previousAccuracyOk=previous&&(previous.accuracy<=0||previous.accuracy<=35);
+   const derivedSpeed=previous&&gap>0&&gap<=120000&&moved>=50&&point.accuracy>0&&point.accuracy<=35&&previous.accuracy>0&&previous.accuracy<=35?moved/(gap/1000)*3.6:0;
+   const implausibleJump=continuous&&gap<=10000&&moved>450;
+   if(implausibleJump)continue;
+   const isMoving=accuracyOk&&((point.speed*3.6>=9&&point.accuracy<=50)||(derivedSpeed>=9&&moved>=50&&previousAccuracyOk));
    if(!continuous)flush();
    if(continuous&&isMoving){
      if(!segment.length)segment.push([previous.latitude,previous.longitude]);
