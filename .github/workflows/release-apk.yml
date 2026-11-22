@@ -3,7 +3,7 @@ name: Publish 3gf release
 on:
   push:
     tags:
-      - 'v*'
+      - 'threegf-v*'
 
 permissions:
   contents: write
@@ -84,6 +84,9 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: threegf-latest
+          target_commitish: main
           name: 3gf ${{ github.ref_name }}
           generate_release_notes: true
           files: GrafikPracy_Final/3gf.apk
+          overwrite_files: true
