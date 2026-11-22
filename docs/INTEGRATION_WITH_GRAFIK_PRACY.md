@@ -14,6 +14,7 @@
 - Punkt wejścia aplikacji uruchamia teraz `TelematicsApp.js`, a nie pełny `AppRuntime.js` Grafiku Pracy.
 - Interfejs 3gf zawiera logowanie wspólnym kontem, konfigurację tokenu urządzenia, start/stop GPS, mapę live, diagnostykę i historię tras.
 - Stare pliki grafiku pozostają w repozytorium jako nieaktywne pliki źródłowe na czas migracji; nie są ładowane przez punkt wejścia 3gf.
+- Nowy applicationId oznacza osobny magazyn danych Android. Po pierwszej instalacji 3gf trzeba zalogować się i ponownie wkleić token urządzenia; dane z dotychczasowego pakietu nie przeniosą się automatycznie.
 - Klucze AsyncStorage i nazwa zadania GPS zostały odseparowane prefiksem `3gf`.
 
 ## Integracja aplikacji
