@@ -57,7 +57,7 @@ test('buildTrips closes a trip after a prolonged stationary stop', () => {
     point(22, '2026-10-17T08:05:00Z', 51.0001, 17.0001, 0),
     point(23, '2026-10-17T08:10:00Z', 51.0001, 17.0001, 0),
     point(24, '2026-10-17T08:15:00Z', 51.0001, 17.0001, 0),
-    point(25, '2026-10-17T08:16:00Z', 51.0010, 17.0010, 10),
+    point(25, '2026-10-17T08:16:00Z', 51.0001, 17.0001, 10),
     point(26, '2026-10-17T08:16:10Z', 51.0016, 17.0016, 10)
   ];
   const trips = buildTrips(rows);
@@ -70,7 +70,7 @@ test('buildTrips handles newest-first database results without losing chronology
   const newestFirst = [
     point(4, '2026-10-17T09:00:10Z', 51.1006, 17.1006),
     point(3, '2026-10-17T09:00:00Z', 51.1, 17.1),
-    point(2, '2026-10-17T08:00:10Z', 51.0001, 17.0001),
+    point(2, '2026-10-17T08:00:10Z', 51.0006, 17.0006),
     point(1, '2026-10-17T08:00:00Z', 51.0, 17.0)
   ];
   const trips = buildTrips(newestFirst, { includePoints: true });
