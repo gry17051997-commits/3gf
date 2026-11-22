@@ -134,7 +134,7 @@ async function saveLocationInternal(location){
   const point={latitude:Number(c.latitude),longitude:Number(c.longitude),accuracy,observedAt};
   let previousHistory=null;
   try{const raw=await AsyncStorage.getItem(LOCATION_LAST_HISTORY_KEY);previousHistory=raw?JSON.parse(raw):null;}catch{}
-  let historyEligible=Number.isFinite(c.speed)&&Number(c.speed)>=1.4;
+  let historyEligible=Number.isFinite(c.speed)&&Number(c.speed)>=2.2;
   if(!historyEligible&&!previousHistory)historyEligible=accuracy<=20;
   if(!historyEligible&&previousHistory){
     const elapsed=(observedAt-Number(previousHistory.observedAt))/1000;
