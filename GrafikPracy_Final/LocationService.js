@@ -9,7 +9,8 @@ export const LOCATION_CONFIG_KEY='grafik-pracy-location-config-v2';
 export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
 export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
 export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
-const LOCATION_OPTIONS_VERSION=4;
+const LOCATION_OPTIONS_VERSION=5;
+const MAX_UPLOAD_ACCURACY_METERS=35;
 const STALE_THRESHOLD_MS = 2.5 * 60 * 1000; // 2.5 minuty
 const LOCATION_PENDING_QUEUE_KEY = 'grafik-pracy-location-pending-queue-v1';
 const MAX_PENDING_GPS_POINTS = 250;
@@ -93,8 +94,8 @@ const getDeviceAssignment=async token=>{
 
 const LOCATION_OPTIONS={
   accuracy:Location.Accuracy.High,
-  timeInterval:10000,
-  distanceInterval:10,
+  timeInterval:15000,
+  distanceInterval:20,
   deferredUpdatesInterval:0,
   deferredUpdatesDistance:0,
   pausesUpdatesAutomatically:false,
@@ -115,6 +116,20 @@ async function saveLocationInternal(location){
   const deviceToken=await getLocationDeviceToken();
   if(!deviceToken)return;
   const c=location.coords,now=Date.now();
+  const accuracy=Number(c.accuracy);
+  if(!Number.isFinite(accuracy)||accuracy<=0||accuracy>MAX_UPLOAD_ACCURACY_METERS){
+    const diagnostics=await getLocationDiagnostics();
+    await patchDiagnostics({
+      gpsRejectedAccuracyCount:(Number(diagnostics.gpsRejectedAccuracyCount)||0)+1,
+      gpsLastRejectedAccuracy:Number.isFinite(accuracy)?accuracy:null,
+      gpsLastRejectedAt:now,
+      gpsAccuracyLimit:MAX_UPLOAD_ACCURACY_METERS
+    });
+    return;
+  }
+  if(!Number.isFinite(Number(c.latitude))||!Number.isFinite(Number(c.longitude))
+      ||Number(c.latitude)<-90||Number(c.latitude)>90||Number(c.longitude)<-180||Number(c.longitude)>180)return;
+  await patchDiagnostics({gpsLastAcceptedAccuracy:accuracy,gpsLastAcceptedAt:now,gpsAccuracyLimit:MAX_UPLOAD_ACCURACY_METERS});
   const payload={
     latitude:Number(c.latitude),
     longitude:Number(c.longitude),
