@@ -11,7 +11,7 @@ const MAPTILER_KEY=String(process.env.EXPO_PUBLIC_MAPTILER_KEY||'').trim();
 const TILE_URL=MAPTILER_KEY
   ? 'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key='+MAPTILER_KEY
   : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const MAP_HTML='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#101722}.leaflet-control-attribution{font-size:9px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const map=L.map("map",{zoomControl:true}).setView([51.0,16.8],7);L.tileLayer('+JSON.stringify(TILE_URL)+',{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);let marker=null;window.setVehiclePoint=function(lat,lon){lat=Number(lat);lon=Number(lon);if(!Number.isFinite(lat)||!Number.isFinite(lon))return;if(!marker){marker=L.marker([lat,lon]).addTo(map);}else marker.setLatLng([lat,lon]);map.setView([lat,lon],Math.max(map.getZoom(),14));};setTimeout(()=>map.invalidateSize(true),250);</script></body></html>';
+const MAP_HTML='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#101722}.leaflet-control-attribution{font-size:9px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const map=L.map("map",{zoomControl:true}).setView([51.0,16.8],7);L.tileLayer('+JSON.stringify(TILE_URL)+',{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);let marker=null;window.setVehiclePoint=function(lat,lon){lat=Number(lat);lon=Number(lon);if(!Number.isFinite(lat)||!Number.isFinite(lon))return;if(!marker){marker=L.marker([lat,lon]).addTo(map);}else marker.setLatLng([lat,lon]);map.setView([lat,lon],Math.max(map.getZoom(),14));};window.clearVehiclePoint=function(){if(marker){map.removeLayer(marker);marker=null;}map.setView([51.0,16.8],7);};setTimeout(()=>map.invalidateSize(true),250);</script></body></html>';
 
 const styles={
   root:{flex:1,backgroundColor:'#0b0f16'},
@@ -138,7 +138,8 @@ export default function TelematicsApp(){
   },[user,refreshAll,refreshVehicles,refreshDiagnostics]);
 
   useEffect(()=>{
-    if(!mapReady||!mapRef.current||!hasPosition)return;
+    if(!mapReady||!mapRef.current)return;
+    if(!hasPosition){mapRef.current.injectJavaScript('window.clearVehiclePoint&&window.clearVehiclePoint(); true;');return;}
     mapRef.current.injectJavaScript('window.setVehiclePoint&&window.setVehiclePoint('+latitude+','+longitude+'); true;');
   },[mapReady,latitude,longitude,hasPosition]);
 
