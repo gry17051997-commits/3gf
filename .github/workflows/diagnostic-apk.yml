@@ -1,6 +1,8 @@
 name: Diagnostic APK
 
 on:
+  push:
+    branches: ['fix/gps-noise-distance-and-trip-route-3gf-hybrid-2026-11-22']
   workflow_dispatch:
 
 permissions:
