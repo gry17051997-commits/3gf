@@ -68,12 +68,12 @@ function summarizeTrip(rows,vehicleId,includePoints) {
  const confirmed=confirmMovementSegments(segments);
  const routePointIds=new Set();confirmed.forEach((ok,index)=>{if(ok){routePointIds.add(points[index].id);routePointIds.add(points[index+1].id);}});
  const routePoints=points.filter(point=>routePointIds.has(point.id));
- let distance=0,drivingMs=0,maxSpeed=0,speedSum=0,speedCount=0,stopStart=null,previous=null;const stops=[];
+ let distance=0,drivingMs=0,maxSpeed=0,stopStart=null,previous=null;const stops=[];
  for(let i=0;i<points.length;i++){
   const point=points[i];
   if(previous){
    const segment=confirmed[i-1]?segments[i-1]:null;
-   if(segment){distance+=segment.distanceMeters;drivingMs+=segment.durationMs;const speed=point.speedKmh??segment.derivedSpeedKmh;maxSpeed=Math.max(maxSpeed,speed);speedSum+=speed;speedCount++;}
+   if(segment){distance+=segment.distanceMeters;drivingMs+=segment.durationMs;maxSpeed=Math.max(maxSpeed,segment.derivedSpeedKmh);}
    const stopped=point.speedKmh!=null&&point.speedKmh<3&&reliablePoint(point);
    if(stopped&&stopStart==null)stopStart=point.observedAt;
    if(!stopped&&stopStart!=null){const stopEnd=asMillis(previous.observedAt),stopBegin=asMillis(stopStart);if(stopEnd!=null&&stopBegin!=null&&stopEnd-stopBegin>=120000)stops.push({startedAt:stopStart,endedAt:previous.observedAt,durationSeconds:Math.round((stopEnd-stopBegin)/1000),latitude:previous.latitude,longitude:previous.longitude});stopStart=null;}
@@ -82,7 +82,7 @@ function summarizeTrip(rows,vehicleId,includePoints) {
  }
  if(stopStart!=null&&last){const stopBegin=asMillis(stopStart);if(stopBegin!=null&&endMs-stopBegin>=120000)stops.push({startedAt:stopStart,endedAt:last.observedAt,durationSeconds:Math.round((endMs-stopBegin)/1000),latitude:last.latitude,longitude:last.longitude});}
  const elapsedSeconds=Math.max(0,Math.round((endMs-startMs)/1000)),drivingSeconds=Math.min(elapsedSeconds,Math.round(drivingMs/1000)),distanceKm=distance/1000;
- const trip={id:`trip-${first.id}`,vehicleId,startedAt:first.observedAt,endedAt:last.observedAt,start:{latitude:first.latitude,longitude:first.longitude},end:{latitude:last.latitude,longitude:last.longitude},pointCount:points.length,distanceKm:Number(distanceKm.toFixed(2)),durationSeconds:elapsedSeconds,drivingSeconds,stopSeconds:Math.max(0,elapsedSeconds-drivingSeconds),averageSpeedKmh:Number((speedCount?speedSum/speedCount:0).toFixed(1)),averageIncludingStopsKmh:Number((elapsedSeconds>0?distanceKm/(elapsedSeconds/3600):0).toFixed(1)),maxSpeedKmh:Number(maxSpeed.toFixed(1)),stops};
+ const trip={id:`trip-${first.id}`,vehicleId,startedAt:first.observedAt,endedAt:last.observedAt,start:{latitude:first.latitude,longitude:first.longitude},end:{latitude:last.latitude,longitude:last.longitude},pointCount:points.length,distanceKm:Number(distanceKm.toFixed(2)),durationSeconds:elapsedSeconds,drivingSeconds,stopSeconds:Math.max(0,elapsedSeconds-drivingSeconds),averageSpeedKmh:Number((drivingMs>0?distance/(drivingMs/3600000):0).toFixed(1)),averageIncludingStopsKmh:Number((elapsedSeconds>0?distanceKm/(elapsedSeconds/3600):0).toFixed(1)),maxSpeedKmh:Number(maxSpeed.toFixed(1)),stops};
  if(includePoints){trip.points=points;trip.routePoints=routePoints;}
  return trip;
 }
