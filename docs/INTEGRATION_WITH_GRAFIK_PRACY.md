@@ -4,7 +4,7 @@
 3gf jest osobną aplikacją Android w wariancie HYBRID. Grafik Pracy i 3gf pokazują mapy (BOTH). 3gf odpowiada za aktywny GPS, kolejkę offline, status urządzenia i historię. Grafik Pracy odpowiada za grafik, pracowników, magazyny i rozliczenia oraz wyświetla mapę floty.
 
 ## Najważniejsze ograniczenia aktualnego repo
-1. Aktualny `android.package` to `pl.grafikpracy.app`, taki sam jak w GrafikPracyApp. Przed niezależnym APK musi otrzymać osobny applicationId. Proponowany identyfikator: `pl.grafikpracy.threegf`, do sprawdzenia przed wydaniem.
+1. W tej gałęzi 3gf otrzymało osobny `android.package = pl.grafikpracy.threegf`, nazwę `3gf`, slug `grafikpracy-3gf` i scheme `grafikpracy3gf`. Pozostaje zweryfikować instalację równoległą i aktualizację APK na fizycznym urządzeniu.
 2. Repozytorium zawiera kopię backendu, `render.yaml` oraz definicję osobnej bazy. Nie wdrażać ich jako osobnego systemu produkcyjnego.
 3. Docelowo 3gf korzysta z centralnego API w repozytorium GrafikPracyApp. Nie może tworzyć konkurencyjnej historii GPS ani osobnego rejestru pojazdów.
 4. Obecna kolejka offline jest oparta o AsyncStorage, ma limit 250 punktów i wysyła FIFO. Przed zwiększeniem limitu lub zmianą magazynu potrzebne są testy i migracja zachowująca istniejące wpisy.
