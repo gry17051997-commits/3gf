@@ -1,6 +1,7 @@
 import React,{useCallback,useEffect,useState} from 'react';
 import {Alert,AppState,Platform,Text,TouchableOpacity,View} from 'react-native';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 
@@ -8,6 +9,8 @@ const RELEASES_URL='https://api.github.com/repos/gry17051997-commits/3gf/release
 const APK_NAME='3gf.apk';
 const PACKAGE_NAME='pl.grafikpracy.threegf';
 const APK_MIME='application/vnd.android.package-archive';
+const LAST_CHECK_KEY='threegf-update-last-check-v1';
+const CHECK_INTERVAL_MS=6*60*60*1000;
 const parts=value=>String(value||'0').replace(/^v/i,'').split(/[.+-]/).map(x=>Number.parseInt(x,10)||0);
 const isNewer=(remote,local)=>{
   const a=parts(remote),b=parts(local);
@@ -23,9 +26,12 @@ export default function UpdateBanner(){
   const check=useCallback(async()=>{
     if(Platform.OS!=='android')return;
     try{
+      const last=Number(await AsyncStorage.getItem(LAST_CHECK_KEY)||0);
+      if(last&&Date.now()-last<CHECK_INTERVAL_MS)return;
       const response=await fetch(RELEASES_URL,{headers:{Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}});
       if(!response.ok)return;
       const data=await response.json();
+      await AsyncStorage.setItem(LAST_CHECK_KEY,String(Date.now()));
       const version=String(data.tag_name||'').replace(/^v/i,'');
       const apk=(data.assets||[]).find(asset=>asset.name===APK_NAME&&asset.browser_download_url);
       if(version&&apk&&isNewer(version,currentVersion))setRelease({version,apk,notes:String(data.body||'').trim()});
