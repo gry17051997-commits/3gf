@@ -237,6 +237,7 @@ assert.ok(service.includes("if(!assignment?.vehicleId)return null;"));
   const startBlock=service.slice(startStart,startEnd);
   assert.match(startBlock,/catch\(e\)\{[\s\S]*const cached=await getConfig\(\)/);
   assert.match(startBlock,/if\(!cached\?\.vehicleId\)throw e/);
+  assert.match(startBlock,/startsWith\('GPS_ASSIGNMENT_NETWORK_ERROR'\)/);
   assert.match(service, /apiPostGps\(payload,deviceToken\)/);
   assert.match(service, /normalizeVehicleId\(assignment\.vehicleId\)/);
 });
