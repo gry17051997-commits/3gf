@@ -260,6 +260,7 @@ app.post('/api/gps',async(req,res)=>{
     else{
       const lastHistory=await q('SELECT latitude,longitude,accuracy,observed_at FROM gps_history WHERE vehicle_id=$1 ORDER BY observed_at DESC LIMIT 1',[v.id]);
       const previous=lastHistory.rows[0];
+      if(!previous)historyEligible=accuracy<=20;
       if(previous){
         const dt=(observed.getTime()-new Date(previous.observed_at).getTime())/1000;
         const rad=value=>value*Math.PI/180;
