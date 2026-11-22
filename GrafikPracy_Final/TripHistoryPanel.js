@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Modal, Platform, ScrollView, Text, TouchableOpacity, View} from 'react-native';
 import {WebView} from 'react-native-webview';
-import {apiGetGpsTrips, apiGetGpsTrip} from './apiClient';
+import {apiGetGpsTrips, apiGetGpsTrip, apiGetGpsHistory} from './apiClient';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
 
@@ -60,7 +60,33 @@ export default function TripHistoryPanel({vehicleId,initialTripId=''}) {
   const openTrip = async trip => {
     try {
       setLoading(true); setError(''); setMatchedSegments([]); setMatchingStatus('Ślad pokazuje zapisane punkty GPS, bez zewnętrznego routingu.');
-      const detail = await apiGetGpsTrip(vehicleId, trip.id); setSelected(detail);
+      let detail = await apiGetGpsTrip(vehicleId, trip.id);
+      let routePoints = Array.isArray(detail?.points) ? detail.points : [];
+      if (routePoints.length < 2) {
+        // Awaryjnie odbuduj trasę z zachowanej historii GPS, gdy szczegóły przejazdu zwrócą niepełny zestaw punktów.
+        const history = await apiGetGpsHistory(vehicleId);
+        const from = Date.parse(detail?.startedAt || trip.startedAt) - 30000;
+        const to = Date.parse(detail?.endedAt || trip.endedAt) + 30000;
+        routePoints = (Array.isArray(history) ? history : [])
+          .map((point,index)=>({
+            id:String(point.id ?? (point.observed_at || point.observedAt || index)),
+            latitude:Number(point.latitude),longitude:Number(point.longitude),
+            accuracy:Number(point.accuracy),
+            speedKmh:point.speed == null ? null : Number(point.speed)*3.6,
+            heading:point.heading == null ? null : Number(point.heading),
+            observedAt:point.observedAt || point.observed_at
+          }))
+          .filter(point=>Number.isFinite(Date.parse(point.observedAt))
+            && Date.parse(point.observedAt)>=from && Date.parse(point.observedAt)<=to
+            && Number.isFinite(point.latitude)&&Number.isFinite(point.longitude)
+            && Number.isFinite(point.accuracy)&&point.accuracy>0&&point.accuracy<=35)
+          .sort((a,b)=>Date.parse(a.observedAt)-Date.parse(b.observedAt));
+      }
+      detail = {...detail,points:routePoints};
+      setMatchingStatus(routePoints.length>=2
+        ? 'Trasa zawiera '+routePoints.length+' punktów GPS.'
+        : 'Serwer zwrócił tylko '+routePoints.length+' wiarygodny punkt GPS. Trasa wymaga większej liczby zapisanych pomiarów.');
+      setSelected(detail);
     } catch (e) { setError(String(e?.message || 'Nie udało się otworzyć trasy')); }
     finally { setLoading(false); }
   };
