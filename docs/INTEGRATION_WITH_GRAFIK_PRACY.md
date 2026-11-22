@@ -10,6 +10,12 @@
 4. Obecna kolejka offline jest oparta o AsyncStorage, ma limit 250 punktów i wysyła FIFO. Przed zwiększeniem limitu lub zmianą magazynu potrzebne są testy i migracja zachowująca istniejące wpisy.
 5. 3gf i Grafik Pracy mają własne pliki `apiClient.js`. Zachować osobne klienty, ale utrzymywać zgodny kontrakt endpointów i payloadów.
 
+## Stan wydzielenia w tej gałęzi
+- Punkt wejścia aplikacji uruchamia teraz `TelematicsApp.js`, a nie pełny `AppRuntime.js` Grafiku Pracy.
+- Interfejs 3gf zawiera logowanie wspólnym kontem, konfigurację tokenu urządzenia, start/stop GPS, mapę live, diagnostykę i historię tras.
+- Stare pliki grafiku pozostają w repozytorium jako nieaktywne pliki źródłowe na czas migracji; nie są ładowane przez punkt wejścia 3gf.
+- Klucze AsyncStorage i nazwa zadania GPS zostały odseparowane prefiksem `3gf`.
+
 ## Integracja aplikacji
 - 3gf wysyła punkty przez `POST /api/gps` z nagłówkiem `X-Device-Token`.
 - 3gf odczytuje przypisanie przez `GET /api/gps/device`.
