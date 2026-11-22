@@ -192,7 +192,17 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}){
   if(!API_BASE_URL)return {ok:false,reason:'api-not-configured'};
   const token=await getLocationDeviceToken();
   if(!token)return {ok:false,reason:'device-token-missing'};
-  const assignment=await getDeviceAssignment(token);
+  let assignment;
+  try{
+    assignment=await getDeviceAssignment(token);
+  }catch(e){
+    // Przy braku sieci pozwól wznowić śledzenie na ostatnim znanym przypisaniu.
+    // Po odzyskaniu połączenia serwer ponownie zweryfikuje token i pojazd.
+    const cached=await getConfig();
+    if(!cached?.vehicleId)throw e;
+    assignment={vehicleId:cached.vehicleId,registration:cached.registration||''};
+    await patchDiagnostics({lastAssignmentFallbackAt:Date.now(),lastAssignmentFallbackError:String(e?.message||e).slice(0,240)});
+  }
   if(!assignment?.vehicleId)return {ok:false,reason:'device-not-assigned'};
   // Centralne przypisanie z API jest jedynym źródłem prawdy.
   // Lokalnie zapisany numer auta może być nieaktualny po zmianie przypisania
