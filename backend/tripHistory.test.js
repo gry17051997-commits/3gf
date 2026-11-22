@@ -122,6 +122,7 @@ test('trip detail returns the complete ordered route, not a single point', () =>
   ];
   const [trip] = buildTrips(rows,{includePoints:true});
   assert.equal(trip.points.length,3);
+  assert.equal(trip.routePoints.length,3);
   assert.equal(trip.points[0].id,'301');
   assert.equal(trip.points[2].id,'303');
   assert.ok(trip.distanceKm>0);
