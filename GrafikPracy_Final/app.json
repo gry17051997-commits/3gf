@@ -28,11 +28,6 @@
         "android.permission.POST_NOTIFICATIONS"
       ]
     },
-    "extra": {
-      "eas": {
-        "projectId": "a1bf7cf9-1bfd-4bd0-8392-e9c3266ce9b6"
-      }
-    },
     "owner": "kafel17",
     "plugins": [
       "expo-notifications",
