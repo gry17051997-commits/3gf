@@ -9,7 +9,8 @@ export const LOCATION_CONFIG_KEY='grafik-pracy-location-config-v2';
 export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
 export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
 export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
-const LOCATION_OPTIONS_VERSION=5;
+const LOCATION_OPTIONS_VERSION=6;
+const LOCATION_LAST_HISTORY_KEY='grafik-pracy-location-last-history-v1';
 const MAX_UPLOAD_ACCURACY_METERS=35;
 const STALE_THRESHOLD_MS = 2.5 * 60 * 1000; // 2.5 minuty
 const LOCATION_PENDING_QUEUE_KEY = 'grafik-pracy-location-pending-queue-v1';
@@ -129,15 +130,35 @@ async function saveLocationInternal(location){
   }
   if(!Number.isFinite(Number(c.latitude))||!Number.isFinite(Number(c.longitude))
       ||Number(c.latitude)<-90||Number(c.latitude)>90||Number(c.longitude)<-180||Number(c.longitude)>180)return;
-  await patchDiagnostics({gpsLastAcceptedAccuracy:accuracy,gpsLastAcceptedAt:now,gpsAccuracyLimit:MAX_UPLOAD_ACCURACY_METERS});
+  const observedAt=Number(location.timestamp||now);
+  const point={latitude:Number(c.latitude),longitude:Number(c.longitude),accuracy,observedAt};
+  let previousHistory=null;
+  try{const raw=await AsyncStorage.getItem(LOCATION_LAST_HISTORY_KEY);previousHistory=raw?JSON.parse(raw):null;}catch{}
+  let historyEligible=Number.isFinite(c.speed)&&Number(c.speed)>=1.4;
+  if(!historyEligible&&!previousHistory)historyEligible=accuracy<=20;
+  if(!historyEligible&&previousHistory){
+    const elapsed=(observedAt-Number(previousHistory.observedAt))/1000;
+    const travelled=distanceMeters(previousHistory,point);
+    const noiseFloor=Math.max(25,(accuracy+Number(previousHistory.accuracy||0))*1.25);
+    const derivedSpeed=elapsed>0&&elapsed<=120?(travelled-noiseFloor)/elapsed*3.6:0;
+    historyEligible=elapsed>0&&elapsed<=120&&travelled>noiseFloor&&derivedSpeed>=8;
+  }
+  if(historyEligible)try{await AsyncStorage.setItem(LOCATION_LAST_HISTORY_KEY,JSON.stringify(point));}catch{}
+  const diagnostics=await getLocationDiagnostics();
+  await patchDiagnostics({
+    gpsLastAcceptedAccuracy:accuracy,gpsLastAcceptedAt:now,gpsAccuracyLimit:MAX_UPLOAD_ACCURACY_METERS,
+    gpsHistoryEligible:historyEligible,
+    gpsStationarySamplesSkipped:(Number(diagnostics.gpsStationarySamplesSkipped)||0)+(historyEligible?0:1)
+  });
   const payload={
-    latitude:Number(c.latitude),
-    longitude:Number(c.longitude),
-    accuracy:Number(c.accuracy||0),
+    latitude:point.latitude,
+    longitude:point.longitude,
+    accuracy,
     altitude:Number(c.altitude||0),
     speed:Number.isFinite(c.speed)?Number(c.speed):null,
     heading:Number.isFinite(c.heading)?Number(c.heading):null,
-    observedAt:Number(location.timestamp||now)
+    observedAt,
+    historyEligible
   };
 
   // Preserve FIFO order while offline; don't let new points leapfrog old ones.
