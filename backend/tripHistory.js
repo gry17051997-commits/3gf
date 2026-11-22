@@ -54,12 +54,23 @@ function pointView(row) {
   };
 }
 
+function confirmMovementSegments(segments) {
+ return segments.map((segment,index)=>{
+  if(!segment)return false;
+  if(segment.reportedMoving)return true;
+  const previous=segments[index-1],next=segments[index+1];
+  return Boolean((previous&&angleDifference(previous.bearing,segment.bearing)<=85)||(next&&angleDifference(segment.bearing,next.bearing)<=85));
+ });
+}
 function summarizeTrip(rows,vehicleId,includePoints) {
  const points=rows.map(p=>({...p})),first=points[0],last=points[points.length-1],startMs=asMillis(first.observedAt),endMs=asMillis(last.observedAt);
+ const segments=points.slice(1).map((point,index)=>segmentMetrics(points[index],point));
+ const confirmed=confirmMovementSegments(segments);
  let distance=0,drivingMs=0,maxSpeed=0,speedSum=0,speedCount=0,stopStart=null,previous=null;const stops=[];
- for(const point of points){
+ for(let i=0;i<points.length;i++){
+  const point=points[i];
   if(previous){
-   const segment=segmentMetrics(previous,point);
+   const segment=confirmed[i-1]?segments[i-1]:null;
    if(segment){distance+=segment.distanceMeters;drivingMs+=segment.durationMs;const speed=point.speedKmh??segment.derivedSpeedKmh;maxSpeed=Math.max(maxSpeed,speed);speedSum+=speed;speedCount++;}
    const stopped=point.speedKmh!=null&&point.speedKmh<3&&reliablePoint(point);
    if(stopped&&stopStart==null)stopStart=point.observedAt;
@@ -83,12 +94,7 @@ export function buildTrips(rows,{vehicleId='',includePoints=false,gapMs=TRIP_GAP
  const valid=(Array.isArray(rows)?rows:[]).filter(row=>row&&row.id!=null&&asMillis(row.observed_at)!=null&&Number.isFinite(Number(row.latitude))&&Number.isFinite(Number(row.longitude))&&Number(row.latitude)>=-90&&Number(row.latitude)<=90&&Number(row.longitude)>=-180&&Number(row.longitude)<=180&&numeric(row.accuracy)!=null&&numeric(row.accuracy)>0&&numeric(row.accuracy)<=MAX_ACCURACY_METERS).slice().sort((a,b)=>asMillis(a.observed_at)-asMillis(b.observed_at)||Number(a.id)-Number(b.id)).map(pointView);
  if(valid.length<2)return [];
  const segments=valid.slice(1).map((point,index)=>segmentMetrics(valid[index],point));
- const confirmed=segments.map((segment,index)=>{
-  if(!segment)return false;
-  if(segment.reportedMoving)return true;
-  const previous=segments[index-1],next=segments[index+1];
-  return Boolean((previous&&angleDifference(previous.bearing,segment.bearing)<=85)||(next&&angleDifference(segment.bearing,next.bearing)<=85));
- });
+ const confirmed=confirmMovementSegments(segments);
  const groups=[];let current=[],pending=[],lastMovingAt=0;
  const flush=()=>{if(current.length>=2)groups.push(current);current=[];pending=[];lastMovingAt=0;};
  for(let i=0;i<segments.length;i++){
