@@ -8,6 +8,13 @@
 - [x] Niezależny versionCode: 13.
 - [ ] Potwierdzona instalacja równolegle z Grafik Pracy na fizycznym urządzeniu.
 
+## Interfejs telematyczny
+- [x] Punkt wejścia 3gf uruchamia osobny ekran telematyki zamiast pełnego runtime Grafiku Pracy.
+- [x] Logowanie wspólnym kontem.
+- [x] Wprowadzanie tokenu urządzenia.
+- [x] Start/stop GPS, podgląd live, diagnostyka i historia tras.
+- [ ] Fizyczny test całego przepływu na telefonie kierowcy.
+
 ## GPS
 - [ ] Start śledzenia wyłącznie po świadomym działaniu kierowcy.
 - [ ] Foreground Service typu location i widoczne powiadomienie.
