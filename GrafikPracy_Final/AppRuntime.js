@@ -30,6 +30,7 @@ import {CENTRAL_API_ENABLED, db} from './firebaseConfig';
 import {apiLogin,apiLogout,apiMe,api,collection,doc,setDoc,getDoc,onSnapshot,serverTimestamp,addDoc,query,where,updateDoc,deleteField,orderBy,limit,runTransaction} from './apiClient';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
+import UpdateBanner from './UpdateBanner';
 import {canAssignPersonToDay, isValidScheduleConditions, isValidScheduleWeekMap, isValidWeekIdMap, maxAdditionalAssignments} from './scheduleEngine';
 
 const KEY = 'grafik-pracy-v5';
@@ -3195,6 +3196,7 @@ const settings = (
     <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
       <View style={S.scrim}>
         <SafeAreaView style={S.container}>
+          <UpdateBanner />
           {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
           {!!localStorageError && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>⚠️ {localStorageError}</Text></View>}
           {CENTRAL_API_ENABLED && cloudUser && <View style={S.cloudStatus}>
