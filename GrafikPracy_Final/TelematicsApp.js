@@ -1,10 +1,12 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {ActivityIndicator,AppState,Linking,Platform,SafeAreaView,ScrollView,Text,TextInput,TouchableOpacity,View} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {WebView} from 'react-native-webview';
 import {apiLogin,apiLogout,apiMe,apiGetGps,apiGetMyGps} from './apiClient';
 import {getLocationDeviceToken,setLocationDeviceToken,getVehicleLocationConfig,getLocationDiagnostics,startVehicleLocationTracking,stopVehicleLocationTracking,ensureVehicleLocationTracking} from './LocationService';
 import TripHistoryPanel from './TripHistoryPanel';
 
+const USER_CACHE_KEY='3gf-cached-user-v1';
 const MAPTILER_KEY=String(process.env.EXPO_PUBLIC_MAPTILER_KEY||'').trim();
 const TILE_URL=MAPTILER_KEY
   ? 'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key='+MAPTILER_KEY
@@ -51,6 +53,8 @@ export default function TelematicsApp(){
   const [loading,setLoading]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
+  const [sessionRetry,setSessionRetry]=useState(false);
+  const [retrySessionKey,setRetrySessionKey]=useState(0);
   const [mapReady,setMapReady]=useState(false);
   const mapRef=useRef(null);
 
@@ -91,16 +95,32 @@ export default function TelematicsApp(){
 
   useEffect(()=>{
     let alive=true;
+    setBooting(true);
     (async()=>{
+      let cachedUser=null;
+      try{
+        const raw=await AsyncStorage.getItem(USER_CACHE_KEY);
+        cachedUser=raw?JSON.parse(raw):null;
+        if(alive&&cachedUser)setUser(cachedUser);
+      }catch{}
       try{
         const current=await apiMe();
-        if(alive)setUser(current);
-      }catch{
-        try{await apiLogout();}catch{}
+        await AsyncStorage.setItem(USER_CACHE_KEY,JSON.stringify(current));
+        if(alive){setUser(current);setSessionRetry(false);setError('');}
+      }catch(e){
+        if(e?.status===401||e?.status===403){
+          try{await apiLogout();}catch{}
+          try{await AsyncStorage.removeItem(USER_CACHE_KEY);}catch{}
+          if(alive){setUser(null);setSessionRetry(false);setError('Sesja wygasła. Zaloguj się ponownie.');}
+        }else if(alive){
+          if(cachedUser)setUser(cachedUser);
+          setSessionRetry(true);
+          setError(cachedUser?'Brak internetu. Pokazuję zapisany profil i lokalną diagnostykę; dane live odświeżą się po połączeniu.':'Nie można połączyć się z serwerem. Sprawdź internet i ponów próbę.');
+        }
       }finally{if(alive)setBooting(false);}
     })();
     return()=>{alive=false;};
-  },[]);
+  },[retrySessionKey]);
 
   useEffect(()=>{
     if(!user)return;
@@ -148,7 +168,7 @@ export default function TelematicsApp(){
   const login=async()=>{
     if(!email.trim()||!password)return;
     setBusy(true);setError('');
-    try{const next=await apiLogin(email.trim(),password);setUser(next);setPassword('');}
+    try{const next=await apiLogin(email.trim(),password);await AsyncStorage.setItem(USER_CACHE_KEY,JSON.stringify(next));setUser(next);setSessionRetry(false);setPassword('');}
     catch(e){setError(e?.message==='INVALID_CREDENTIALS'?'Nieprawidłowy e-mail lub hasło.':String(e?.message||'Logowanie nie powiodło się.'));}
     finally{setBusy(false);}
   };
@@ -195,6 +215,7 @@ export default function TelematicsApp(){
     setBusy(true);
     try{if(config.enabled===true)await stopVehicleLocationTracking();await apiLogout();}
     catch{}
+    try{await AsyncStorage.removeItem(USER_CACHE_KEY);}catch{}
     setUser(null);setVehicles([]);setSelectedVehicleId('');setConfig({});setDiagnostics({});setBusy(false);
   };
 
@@ -207,6 +228,7 @@ export default function TelematicsApp(){
       <TextInput value={password} onChangeText={setPassword} placeholder="Hasło" placeholderTextColor="#738197" secureTextEntry style={styles.input}/>
       <TouchableOpacity style={styles.button} disabled={busy} onPress={login}><Text style={styles.buttonText}>{busy?'LOGOWANIE…':'ZALOGUJ SIĘ'}</Text></TouchableOpacity>
       {!!error&&<Text style={styles.error}>{error}</Text>}
+      {sessionRetry&&<TouchableOpacity style={[styles.button,styles.secondary]} onPress={()=>setRetrySessionKey(x=>x+1)}><Text style={styles.buttonText}>PONÓW POŁĄCZENIE</Text></TouchableOpacity>}
     </View>
     <Text style={styles.muted}>3gf korzysta z tego samego konta co Grafik Pracy. Nie tworzy osobnej bazy użytkowników.</Text>
   </ScrollView></SafeAreaView>;
@@ -216,6 +238,8 @@ export default function TelematicsApp(){
       <View style={styles.row}><View style={{flex:1}}><Text style={styles.brand}>3gf</Text><Text style={styles.subtitle}>TELEMATYKA POJAZDÓW</Text></View><TouchableOpacity style={[styles.button,styles.secondary,{marginTop:0}]} onPress={logout} disabled={busy}><Text style={styles.buttonText}>WYLOGUJ</Text></TouchableOpacity></View>
       <Text style={styles.muted}>{user.displayName||user.email} · {user.role}</Text>
     </View>
+
+    {sessionRetry&&<View style={styles.card}><Text style={styles.warning}>TRYB OGRANICZONY · BRAK POŁĄCZENIA</Text><Text style={styles.muted}>Zapisany profil pozostaje dostępny. Po odzyskaniu internetu pobierz aktualną lokalizację i historię.</Text><TouchableOpacity style={[styles.button,styles.secondary]} onPress={()=>setRetrySessionKey(x=>x+1)}><Text style={styles.buttonText}>PONÓW POŁĄCZENIE</Text></TouchableOpacity></View>}
 
     {user.role==='locator'&&<View style={styles.card}>
       <Text style={styles.title}>Urządzenie GPS</Text>
