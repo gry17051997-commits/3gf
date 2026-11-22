@@ -10,9 +10,9 @@ const point = (id, at, latitude, longitude, speed = 10) => ({
 test('buildTrips separates independent trips after a long GPS gap', () => {
   const rows = [
     point(1, '2026-10-17T08:00:00Z', 51.0, 17.0),
-    point(2, '2026-10-17T08:00:10Z', 51.0001, 17.0001),
+    point(2, '2026-10-17T08:00:10Z', 51.0006, 17.0006),
     point(3, '2026-10-17T09:00:00Z', 51.1, 17.1),
-    point(4, '2026-10-17T09:00:10Z', 51.1001, 17.1001)
+    point(4, '2026-10-17T09:00:10Z', 51.1006, 17.1006)
   ];
   const trips = buildTrips(rows, { vehicleId: 'vehicle-1', includePoints: true });
   assert.equal(trips.length, 2);
@@ -58,7 +58,7 @@ test('buildTrips closes a trip after a prolonged stationary stop', () => {
     point(23, '2026-10-17T08:10:00Z', 51.0001, 17.0001, 0),
     point(24, '2026-10-17T08:15:00Z', 51.0001, 17.0001, 0),
     point(25, '2026-10-17T08:16:00Z', 51.0010, 17.0010, 10),
-    point(26, '2026-10-17T08:16:10Z', 51.0011, 17.0011, 10)
+    point(26, '2026-10-17T08:16:10Z', 51.0016, 17.0016, 10)
   ];
   const trips = buildTrips(rows);
   assert.equal(trips.length, 2);
@@ -93,4 +93,36 @@ test('buildTrips includes a stop that continues through the last GPS sample', ()
   assert.equal(trip.stops.length, 1);
   assert.equal(trip.stops[0].durationSeconds, 120);
   assert.equal(trip.stops[0].endedAt, '2026-10-17T08:03:00.000Z');
+});
+test('stationary indoor GPS jitter does not create trips or distance', () => {
+  const rows = [
+    {...point(101,'2026-10-17T08:00:00Z',51.0,17.0,0),accuracy:24},
+    {...point(102,'2026-10-17T08:00:10Z',51.00015,17.00012,0),accuracy:28},
+    {...point(103,'2026-10-17T08:00:20Z',50.99992,17.00018,0),accuracy:31},
+    {...point(104,'2026-10-17T08:00:30Z',51.0002,16.9999,0),accuracy:26},
+    {...point(105,'2026-10-17T08:00:40Z',51.00005,17.00025,0),accuracy:29}
+  ];
+  assert.deepEqual(buildTrips(rows,{includePoints:true}),[]);
+});
+
+test('poor-accuracy GPS fixes are excluded even if coordinates jump', () => {
+  const rows = [
+    {...point(201,'2026-10-17T08:00:00Z',51.0,17.0,15),accuracy:80},
+    {...point(202,'2026-10-17T08:00:10Z',51.001,17.001,15),accuracy:90},
+    {...point(203,'2026-10-17T08:00:20Z',51.002,17.002,15),accuracy:75}
+  ];
+  assert.deepEqual(buildTrips(rows),[]);
+});
+
+test('trip detail returns the complete ordered route, not a single point', () => {
+  const rows = [
+    point(301,'2026-10-17T08:00:00Z',51.0,17.0,10),
+    point(302,'2026-10-17T08:00:10Z',51.0006,17.0006,10),
+    point(303,'2026-10-17T08:00:20Z',51.0012,17.0012,10)
+  ];
+  const [trip] = buildTrips(rows,{includePoints:true});
+  assert.equal(trip.points.length,3);
+  assert.equal(trip.points[0].id,'301');
+  assert.equal(trip.points[2].id,'303');
+  assert.ok(trip.distanceKm>0);
 });
