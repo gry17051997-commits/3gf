@@ -254,23 +254,23 @@ app.post('/api/gps',async(req,res)=>{
   const speed=Number.isFinite(Number(b.speed))?Number(b.speed):null;
   const heading=Number.isFinite(Number(b.heading))?Number(b.heading):null;
   const currentResult=await q('INSERT INTO gps_current(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT(vehicle_id) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,accuracy=EXCLUDED.accuracy,altitude=EXCLUDED.altitude,speed=EXCLUDED.speed,heading=EXCLUDED.heading,observed_at=EXCLUDED.observed_at,received_at=NOW() WHERE gps_current.observed_at<=EXCLUDED.observed_at',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
-  let historyEligible=b.historyEligible===true&&accuracy!=null&&accuracy>0&&accuracy<=35;
-  if(b.historyEligible!==false&&b.historyEligible!==true&&accuracy!=null&&accuracy>0&&accuracy<=35){
-    if(speed!=null&&speed>=2.2)historyEligible=true;
-    else{
-      const lastHistory=await q('SELECT latitude,longitude,accuracy,observed_at FROM gps_history WHERE vehicle_id=$1 ORDER BY observed_at DESC LIMIT 1',[v.id]);
-      const previous=lastHistory.rows[0];
-      if(!previous)historyEligible=accuracy<=20;
-      if(previous){
-        const dt=(observed.getTime()-new Date(previous.observed_at).getTime())/1000;
-        const rad=value=>value*Math.PI/180;
-        const dLat=rad(lat-Number(previous.latitude)),dLon=rad(lon-Number(previous.longitude));
-        const a=Math.sin(dLat/2)**2+Math.cos(rad(Number(previous.latitude)))*Math.cos(rad(lat))*Math.sin(dLon/2)**2;
-        const travelled=6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(Math.max(0,1-a)));
-        const noiseFloor=Math.max(25,(accuracy+Number(previous.accuracy||0))*1.25);
-        const derivedSpeed=dt>0&&dt<=120?(travelled-noiseFloor)/dt*3.6:0;
-        historyEligible=dt>0&&dt<=120&&travelled>noiseFloor&&derivedSpeed>=8;
-      }
+  // Enforce movement validation on the server too. Never trust a single
+  // Android speed sample or a client-provided historyEligible=true flag.
+  let historyEligible=false;
+  if(accuracy!=null&&accuracy>0&&accuracy<=35){
+    const lastHistory=await q('SELECT latitude,longitude,accuracy,observed_at FROM gps_history WHERE vehicle_id=$1 ORDER BY observed_at DESC LIMIT 1',[v.id]);
+    const previous=lastHistory.rows[0];
+    if(!previous)historyEligible=accuracy<=20;
+    if(previous){
+      const dt=(observed.getTime()-new Date(previous.observed_at).getTime())/1000;
+      const rad=value=>value*Math.PI/180;
+      const dLat=rad(lat-Number(previous.latitude)),dLon=rad(lon-Number(previous.longitude));
+      const a=Math.sin(dLat/2)**2+Math.cos(rad(Number(previous.latitude)))*Math.cos(rad(lat))*Math.sin(dLon/2)**2;
+      const travelled=6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(Math.max(0,1-a)));
+      const noiseFloor=Math.max(15,(accuracy+Number(previous.accuracy||0))*0.8);
+      const effectiveDistance=travelled-noiseFloor;
+      const derivedSpeed=dt>0&&dt<=180?effectiveDistance/dt*3.6:0;
+      historyEligible=dt>0&&dt<=180&&effectiveDistance>=10&&derivedSpeed>=5.5&&derivedSpeed<=180;
     }
   }
   if(historyEligible)await q('INSERT INTO gps_history(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
