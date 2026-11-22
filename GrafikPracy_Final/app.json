@@ -3,7 +3,7 @@
     "name": "3gf",
     "slug": "grafikpracy-3gf",
     "scheme": "grafikpracy3gf",
-    "version": "1.0.9",
+    "version": "1.1.0",
     "orientation": "portrait",
     "newArchEnabled": false,
     "userInterfaceStyle": "dark",
@@ -13,7 +13,7 @@
     },
     "android": {
       "package": "pl.grafikpracy.threegf",
-      "versionCode": 13,
+      "versionCode": 14,
       "adaptiveIcon": {
         "foregroundImage": "./icon-512.png",
         "backgroundColor": "#11151c"
@@ -25,7 +25,8 @@
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.REQUEST_INSTALL_PACKAGES"
       ]
     },
     "owner": "kafel17",

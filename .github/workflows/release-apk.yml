@@ -1,0 +1,93 @@
+name: Publish 3gf release
+
+on:
+  push:
+    tags:
+      - 'threegf-v*'
+
+permissions:
+  contents: write
+
+env:
+  EXPO_NO_DOCTOR: "1"
+  CI: "1"
+  EXPO_PUBLIC_API_URL: https://grafik-pracy-api-fra.onrender.com
+
+jobs:
+  release:
+    name: Build and publish compatible 3gf APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: GrafikPracy_Final
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: GrafikPracy_Final/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Apply deterministic build fixes
+        run: |
+          node scripts/fix-app-build.js
+          node scripts/fix-chat-build.js
+          node scripts/fix-rotation-switch.js
+
+      - name: Generate Android project
+        run: npx expo prebuild --platform android --no-install --non-interactive
+
+      - name: Configure embedded JS bundle
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path=Path("android/app/build.gradle")
+          source=path.read_text()
+          marker="react {\n"
+          if marker not in source: raise SystemExit("React Gradle block missing")
+          block='''react {
+              cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())
+              bundleCommand = "export:embed"
+              debuggableVariants = []
+          '''
+          path.write_text(source.replace(marker,block,1))
+          PY
+
+      - name: Build release APK
+        working-directory: GrafikPracy_Final/android
+        run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
+
+      - name: Verify APK and existing signing certificate
+        working-directory: GrafikPracy_Final
+        run: |
+          test -s android/app/build/outputs/apk/release/app-release.apk
+          unzip -t android/app/build/outputs/apk/release/app-release.apk >/dev/null
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort | tail -1)
+          CERT=$("$APKSIGNER" verify --print-certs android/app/build/outputs/apk/release/app-release.apk | sed -n 's/.*certificate SHA-256 digest: //p' | head -1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
+          EXPECTED=fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c
+          test "$CERT" = "$EXPECTED" || (echo "APK signing certificate changed; refusing to publish an incompatible update" && echo "Detected: $CERT" && exit 1)
+          cp android/app/build/outputs/apk/release/app-release.apk 3gf.apk
+          ls -lh 3gf.apk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: threegf-latest
+          target_commitish: main
+          name: 3gf ${{ github.ref_name }}
+          generate_release_notes: true
+          files: GrafikPracy_Final/3gf.apk
+          overwrite_files: true

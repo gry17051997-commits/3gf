@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Modal, Platform, ScrollView, Text, TouchableOpacity, View} from 'react-native';
 import {WebView} from 'react-native-webview';
-import {apiGetGpsTrips, apiGetGpsTrip} from './apiClient';
+import {apiGetGpsTrips, apiGetGpsTrip, apiGetGpsHistory} from './apiClient';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
 
@@ -60,7 +60,32 @@ export default function TripHistoryPanel({vehicleId,initialTripId=''}) {
   const openTrip = async trip => {
     try {
       setLoading(true); setError(''); setMatchedSegments([]); setMatchingStatus('Ślad pokazuje zapisane punkty GPS, bez zewnętrznego routingu.');
-      const detail = await apiGetGpsTrip(vehicleId, trip.id); setSelected(detail);
+      let detail = await apiGetGpsTrip(vehicleId, trip.id);
+      let routePoints = Array.isArray(detail?.points) ? detail.points : [];
+      if (routePoints.length < 2) {
+        const history = await apiGetGpsHistory(vehicleId);
+        const from = Date.parse(detail?.startedAt || trip.startedAt) - 30000;
+        const to = Date.parse(detail?.endedAt || trip.endedAt) + 30000;
+        routePoints = (Array.isArray(history) ? history : [])
+          .map((point,index)=>({
+            id:String(point.id ?? (point.observed_at || point.observedAt || index)),
+            latitude:Number(point.latitude),longitude:Number(point.longitude),
+            accuracy:Number(point.accuracy),
+            speedKmh:point.speed == null ? null : Number(point.speed)*3.6,
+            heading:point.heading == null ? null : Number(point.heading),
+            observedAt:point.observedAt || point.observed_at
+          }))
+          .filter(point=>Number.isFinite(Date.parse(point.observedAt))
+            && Date.parse(point.observedAt)>=from && Date.parse(point.observedAt)<=to
+            && Number.isFinite(point.latitude)&&Number.isFinite(point.longitude)
+            && Number.isFinite(point.accuracy)&&point.accuracy>0&&point.accuracy<=35)
+          .sort((a,b)=>Date.parse(a.observedAt)-Date.parse(b.observedAt));
+      }
+      detail = {...detail,points:routePoints};
+      setMatchingStatus(routePoints.length>=2
+        ? 'Trasa zawiera '+routePoints.length+' punktów GPS.'
+        : 'Serwer zwrócił tylko '+routePoints.length+' wiarygodny punkt GPS.');
+      setSelected(detail);
     } catch (e) { setError(String(e?.message || 'Nie udało się otworzyć trasy')); }
     finally { setLoading(false); }
   };
@@ -103,7 +128,10 @@ export default function TripHistoryPanel({vehicleId,initialTripId=''}) {
               <Text style={sub}>Średnia podczas jazdy: {selected.averageSpeedKmh} km/h</Text>
               <Text style={sub}>Średnia z postojami: {selected.averageIncludingStopsKmh} km/h · maksymalna: {selected.maxSpeedKmh} km/h</Text>
               <View style={{height:260,marginTop:12,borderRadius:12,overflow:'hidden',backgroundColor:'#101722'}}>
-                {Platform.OS === 'web' ? <iframe title="Mapa wybranego przejazdu" srcDoc={tripMapHtml(selected.points, selected.id, matchedSegments)} style={{width:'100%',height:'100%',border:0}} /> : <WebView key={selected.id} originWhitelist={['*']} source={{html:tripMapHtml(selected.points, selected.id, matchedSegments)}} javaScriptEnabled domStorageEnabled androidLayerType="software" onMessage={event => { try { const message = JSON.parse(event.nativeEvent.data); if (message?.type === "gpsPoint" && message.point) setSelectedPoint(message.point); } catch {} }} style={{flex:1}} />}
+                {selected.routePoints?.length >= 2 ? (Platform.OS === 'web'
+                  ? <iframe title="Potwierdzona trasa przejazdu" srcDoc={tripMapHtml(selected.routePoints, selected.id, matchedSegments)} style={{width:'100%',height:'100%',border:0}} />
+                  : <WebView key={selected.id} originWhitelist={['*']} source={{html:tripMapHtml(selected.routePoints, selected.id, matchedSegments)}} javaScriptEnabled domStorageEnabled androidLayerType="software" onMessage={event => { try { const message = JSON.parse(event.nativeEvent.data); if (message?.type === "gpsPoint" && message.point) setSelectedPoint(message.point); } catch {} }} style={{flex:1}} />)
+                  : <View style={{flex:1,alignItems:'center',justifyContent:'center',padding:18}}><Text style={{color:'#aab4c4',textAlign:'center'}}>Brak wystarczającej liczby potwierdzonych punktów, aby narysować wiarygodną trasę. Surowe skoki GPS nie są łączone na mapie.</Text></View>}
               </View>
               <Text style={[title,{marginTop:14}]}>PUNKTY GPS</Text>
               {(selected.points || []).map(point => <TouchableOpacity key={point.id} style={row} onPress={() => setSelectedPoint(point)}>
