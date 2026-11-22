@@ -1,0 +1,26 @@
+# Integracja 3gf z Grafik Pracy
+
+## Decyzja
+3gf jest osobną aplikacją Android w wariancie HYBRID. Grafik Pracy i 3gf pokazują mapy (BOTH). 3gf odpowiada za aktywny GPS, kolejkę offline, status urządzenia i historię. Grafik Pracy odpowiada za grafik, pracowników, magazyny i rozliczenia oraz wyświetla mapę floty.
+
+## Najważniejsze ograniczenia aktualnego repo
+1. Aktualny `android.package` to `pl.grafikpracy.app`, taki sam jak w GrafikPracyApp. Przed niezależnym APK musi otrzymać osobny applicationId. Proponowany identyfikator: `pl.grafikpracy.threegf`, do sprawdzenia przed wydaniem.
+2. Repozytorium zawiera kopię backendu, `render.yaml` oraz definicję osobnej bazy. Nie wdrażać ich jako osobnego systemu produkcyjnego.
+3. Docelowo 3gf korzysta z centralnego API w repozytorium GrafikPracyApp. Nie może tworzyć konkurencyjnej historii GPS ani osobnego rejestru pojazdów.
+4. Obecna kolejka offline jest oparta o AsyncStorage, ma limit 250 punktów i wysyła FIFO. Przed zwiększeniem limitu lub zmianą magazynu potrzebne są testy i migracja zachowująca istniejące wpisy.
+5. 3gf i Grafik Pracy mają własne pliki `apiClient.js`. Zachować osobne klienty, ale utrzymywać zgodny kontrakt endpointów i payloadów.
+
+## Integracja aplikacji
+- 3gf wysyła punkty przez `POST /api/gps` z nagłówkiem `X-Device-Token`.
+- 3gf odczytuje przypisanie przez `GET /api/gps/device`.
+- Obie aplikacje odczytują pozycje przez endpointy centralnego API.
+- 3gf otwierane z Grafiku Pracy otrzymuje wyłącznie identyfikator pojazdu/trasy i żądany ekran.
+- Nie przekazywać bearer tokenu ani tokenu urządzenia w deep linku.
+- SSO, jeśli zostanie dodane, musi używać jednorazowego kodu wymiany o krótkim TTL, a nie tokenu w URI.
+
+## Nie wykonywać
+- Nie zmieniać applicationId Grafiku Pracy.
+- Nie uruchamiać `3gf/backend` jako drugiego produkcyjnego API.
+- Nie używać `3gf/render.yaml` do tworzenia kolejnej bazy.
+- Nie uruchamiać trackingu GPS równolegle w obu aplikacjach na jednym telefonie.
+- Nie usuwać istniejącej kolejki AsyncStorage bez migracji i testu odzyskiwania.
