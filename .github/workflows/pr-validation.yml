@@ -55,7 +55,9 @@ jobs:
       - name: Production hardening tests
         run: npm test
       - name: Validate project configuration
-        run: npx expo config --type public
+        run: |
+          npx expo config --type public
+          node -e "const c=require('./app.json').expo; if(c.name!=='3gf'||c.android?.package!=='pl.grafikpracy.threegf'||c.scheme!=='grafikpracy3gf') { console.error('Invalid standalone 3gf identity'); process.exit(1); } console.log('Standalone 3gf identity: OK')"
       - name: Validate build-fix scripts
         run: |
           node --check scripts/fix-app-build.js
