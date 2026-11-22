@@ -1,12 +1,12 @@
 # 3gf: lista kontrolna niezależnego wydania
 
 ## Tożsamość aplikacji
-- [ ] Unikalny Android applicationId (inny niż `pl.grafikpracy.app`).
-- [ ] Nazwa aplikacji „3gf”.
+- [x] Unikalny Android applicationId: `pl.grafikpracy.threegf`.
+- [x] Nazwa aplikacji „3gf”.
 - [ ] Osobna ikona i splash screen.
-- [ ] Osobny scheme deep link.
-- [ ] Niezależny versionCode.
-- [ ] Potwierdzona instalacja równolegle z Grafik Pracy.
+- [x] Osobny scheme deep link: `grafikpracy3gf`.
+- [x] Niezależny versionCode: 13.
+- [ ] Potwierdzona instalacja równolegle z Grafik Pracy na fizycznym urządzeniu.
 
 ## GPS
 - [ ] Start śledzenia wyłącznie po świadomym działaniu kierowcy.
