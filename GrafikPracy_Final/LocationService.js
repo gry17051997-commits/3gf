@@ -134,14 +134,19 @@ async function saveLocationInternal(location){
   const point={latitude:Number(c.latitude),longitude:Number(c.longitude),accuracy,observedAt};
   let previousHistory=null;
   try{const raw=await AsyncStorage.getItem(LOCATION_LAST_HISTORY_KEY);previousHistory=raw?JSON.parse(raw):null;}catch{}
-  let historyEligible=Number.isFinite(c.speed)&&Number(c.speed)>=2.2;
-  if(!historyEligible&&!previousHistory)historyEligible=accuracy<=20;
-  if(!historyEligible&&previousHistory){
+  // A speed value reported by Android is not proof of movement: indoor GPS
+  // multipath can report 10-20 km/h while the phone is stationary.
+  // Keep one accurate anchor, then accept only a real displacement beyond
+  // the combined uncertainty radius and a plausible derived ground speed.
+  let historyEligible=false;
+  if(!previousHistory)historyEligible=accuracy<=20;
+  if(previousHistory){
     const elapsed=(observedAt-Number(previousHistory.observedAt))/1000;
     const travelled=distanceMeters(previousHistory,point);
-    const noiseFloor=Math.max(25,(accuracy+Number(previousHistory.accuracy||0))*1.25);
-    const derivedSpeed=elapsed>0&&elapsed<=120?(travelled-noiseFloor)/elapsed*3.6:0;
-    historyEligible=elapsed>0&&elapsed<=120&&travelled>noiseFloor&&derivedSpeed>=8;
+    const noiseFloor=Math.max(15,(accuracy+Number(previousHistory.accuracy||0))*0.8);
+    const effectiveDistance=travelled-noiseFloor;
+    const derivedSpeed=elapsed>0&&elapsed<=180?effectiveDistance/elapsed*3.6:0;
+    historyEligible=elapsed>0&&elapsed<=180&&effectiveDistance>=10&&derivedSpeed>=5.5&&derivedSpeed<=180;
   }
   if(historyEligible)try{await AsyncStorage.setItem(LOCATION_LAST_HISTORY_KEY,JSON.stringify(point));}catch{}
   const diagnostics=await getLocationDiagnostics();
