@@ -128,7 +128,10 @@ export default function TripHistoryPanel({vehicleId,initialTripId=''}) {
               <Text style={sub}>Średnia podczas jazdy: {selected.averageSpeedKmh} km/h</Text>
               <Text style={sub}>Średnia z postojami: {selected.averageIncludingStopsKmh} km/h · maksymalna: {selected.maxSpeedKmh} km/h</Text>
               <View style={{height:260,marginTop:12,borderRadius:12,overflow:'hidden',backgroundColor:'#101722'}}>
-                {Platform.OS === 'web' ? <iframe title="Mapa wybranego przejazdu" srcDoc={tripMapHtml(selected.routePoints?.length >= 2 ? selected.routePoints : selected.points, selected.id, matchedSegments)} style={{width:'100%',height:'100%',border:0}} /> : <WebView key={selected.id} originWhitelist={['*']} source={{html:tripMapHtml(selected.routePoints?.length >= 2 ? selected.routePoints : selected.points, selected.id, matchedSegments)}} javaScriptEnabled domStorageEnabled androidLayerType="software" onMessage={event => { try { const message = JSON.parse(event.nativeEvent.data); if (message?.type === "gpsPoint" && message.point) setSelectedPoint(message.point); } catch {} }} style={{flex:1}} />}
+                {selected.routePoints?.length >= 2 ? (Platform.OS === 'web'
+                  ? <iframe title="Potwierdzona trasa przejazdu" srcDoc={tripMapHtml(selected.routePoints, selected.id, matchedSegments)} style={{width:'100%',height:'100%',border:0}} />
+                  : <WebView key={selected.id} originWhitelist={['*']} source={{html:tripMapHtml(selected.routePoints, selected.id, matchedSegments)}} javaScriptEnabled domStorageEnabled androidLayerType="software" onMessage={event => { try { const message = JSON.parse(event.nativeEvent.data); if (message?.type === "gpsPoint" && message.point) setSelectedPoint(message.point); } catch {} }} style={{flex:1}} />)
+                  : <View style={{flex:1,alignItems:'center',justifyContent:'center',padding:18}}><Text style={{color:'#aab4c4',textAlign:'center'}}>Brak wystarczającej liczby potwierdzonych punktów, aby narysować wiarygodną trasę. Surowe skoki GPS nie są łączone na mapie.</Text></View>}
               </View>
               <Text style={[title,{marginTop:14}]}>PUNKTY GPS</Text>
               {(selected.points || []).map(point => <TouchableOpacity key={point.id} style={row} onPress={() => setSelectedPoint(point)}>
