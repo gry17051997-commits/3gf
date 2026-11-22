@@ -127,3 +127,13 @@ test('trip detail returns the complete ordered route, not a single point', () =>
   assert.equal(trip.points[2].id,'303');
   assert.ok(trip.distanceKm>0);
 });
+
+test('stationary zig-zag GPS jitter with low false speed does not create a trip', () => {
+  const rows = [
+    {...point(401,'2026-10-17T08:00:00Z',51.0,17.0,2),accuracy:5},
+    {...point(402,'2026-10-17T08:00:10Z',51.0004,17.0,2),accuracy:5},
+    {...point(403,'2026-10-17T08:00:20Z',51.0,17.0,2),accuracy:5},
+    {...point(404,'2026-10-17T08:00:30Z',51.0004,17.0,2),accuracy:5}
+  ];
+  assert.deepEqual(buildTrips(rows),[]);
+});
