@@ -137,3 +137,13 @@ test('stationary zig-zag GPS jitter with low false speed does not create a trip'
   ];
   assert.deepEqual(buildTrips(rows),[]);
 });
+
+test('single false indoor speed spike does not create a trip', () => {
+  const rows = [
+    {...point(501,'2026-10-17T08:00:00Z',50.85782,16.49089,15/3.6),accuracy:16},
+    {...point(502,'2026-10-17T08:00:13Z',50.85782,16.49087,0),accuracy:37},
+    {...point(503,'2026-10-17T08:00:23Z',50.85785,16.49089,0),accuracy:19},
+    {...point(504,'2026-10-17T08:00:33Z',50.85784,16.49090,1/3.6),accuracy:19}
+  ];
+  assert.deepEqual(buildTrips(rows,{includePoints:true}),[]);
+});
