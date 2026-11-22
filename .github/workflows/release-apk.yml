@@ -1,4 +1,4 @@
-name: Publish signed 3gf release
+name: Publish 3gf release
 
 on:
   push:
@@ -14,7 +14,7 @@ env:
 
 jobs:
   release:
-    name: Build and publish signed 3gf APK
+    name: Build and publish compatible 3gf APK
     runs-on: ubuntu-latest
     timeout-minutes: 40
     defaults:
@@ -37,18 +37,6 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Verify signing secrets
-        env:
-          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          test -n "$KEYSTORE" || (echo "Missing ANDROID_KEYSTORE_BASE64 repository secret" && exit 1)
-          test -n "$STORE_PASSWORD" || (echo "Missing ANDROID_KEYSTORE_PASSWORD repository secret" && exit 1)
-          test -n "$KEY_ALIAS" || (echo "Missing ANDROID_KEY_ALIAS repository secret" && exit 1)
-          test -n "$KEY_PASSWORD" || (echo "Missing ANDROID_KEY_PASSWORD repository secret" && exit 1)
-
       - name: Install dependencies
         run: npm install --ignore-scripts
 
@@ -61,49 +49,8 @@ jobs:
       - name: Generate Android project
         run: npx expo prebuild --platform android --no-install --non-interactive
 
-      - name: Configure stable APK signing
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - name: Configure embedded JS bundle
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
-          export ANDROID_KEYSTORE_FILE="$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/release.keystore"
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          path=Path("android/app/build.gradle")
-          source=path.read_text()
-          start=source.index("signingConfigs {")
-          opening=source.index("{",start)
-          depth=0
-          closing=None
-          for i in range(opening,len(source)):
-              if source[i]=="{": depth+=1
-              elif source[i]=="}":
-                  depth-=1
-                  if depth==0:
-                      closing=i
-                      break
-          if closing is None: raise SystemExit("Cannot locate signingConfigs block")
-          release_config='''
-              release {
-                  storeFile file(System.getenv("ANDROID_KEYSTORE_FILE"))
-                  storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                  keyAlias System.getenv("ANDROID_KEY_ALIAS")
-                  keyPassword System.getenv("ANDROID_KEY_PASSWORD")
-              }
-          '''
-          source=source[:closing]+release_config+source[closing:]
-          build_types=source.index("buildTypes {")
-          release_start=source.index("release {",build_types)
-          marker="signingConfig signingConfigs.debug"
-          marker_at=source.find(marker,release_start)
-          if marker_at<0: raise SystemExit("Cannot locate release signing configuration")
-          source=source[:marker_at]+source[marker_at:].replace(marker,"signingConfig signingConfigs.release",1)
-          path.write_text(source)
-          PY
           python3 - <<'PY'
           from pathlib import Path
           path=Path("android/app/build.gradle")
@@ -122,11 +69,15 @@ jobs:
         working-directory: GrafikPracy_Final/android
         run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
 
-      - name: Verify APK
+      - name: Verify APK and existing signing certificate
         working-directory: GrafikPracy_Final
         run: |
           test -s android/app/build/outputs/apk/release/app-release.apk
           unzip -t android/app/build/outputs/apk/release/app-release.apk >/dev/null
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort | tail -1)
+          CERT=$("$APKSIGNER" verify --print-certs android/app/build/outputs/apk/release/app-release.apk | sed -n 's/.*certificate SHA-256 digest: //p' | head -1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
+          EXPECTED=fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c
+          test "$CERT" = "$EXPECTED" || (echo "APK signing certificate changed; refusing to publish an incompatible update" && echo "Detected: $CERT" && exit 1)
           cp android/app/build/outputs/apk/release/app-release.apk 3gf.apk
           ls -lh 3gf.apk
 
