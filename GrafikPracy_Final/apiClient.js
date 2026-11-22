@@ -5,7 +5,7 @@ const API_ORIGIN=API_URL_CONFIG.replace(/\/api$/i,'').replace(/\/+$/,'');
 const API_URL_VALID=(()=>{if(!API_ORIGIN)return false;try{const u=new URL(API_ORIGIN);return (u.protocol==='https:'||u.protocol==='http:')&&!!u.host&&u.pathname==='/'&&!u.search&&!u.hash;}catch{return false;}})();
 // EXPO_PUBLIC_API_URL is an origin only, for example https://example.com. Never append /api twice.
 export const API_BASE_URL=API_URL_VALID ? API_ORIGIN+'/api' : '';
-export const API_TOKEN_KEY='grafik-pracy-api-token-v1';
+export const API_TOKEN_KEY='3gf-api-token-v1';
 
 async function token(){return AsyncStorage.getItem(API_TOKEN_KEY);}
 export async function api(path,{method='GET',body,headers={}}={}){
