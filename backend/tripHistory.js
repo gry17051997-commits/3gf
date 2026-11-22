@@ -1,6 +1,9 @@
 const TRIP_GAP_MS = 30 * 60 * 1000;
 const MAX_SEGMENT_GAP_MS = 2 * 60 * 1000;
 const MIN_MOVING_SPEED_KMH = 5;
+const MAX_ACCURACY_METERS = 35;
+const MAX_TRIP_SPEED_KMH = 180;
+const MIN_EFFECTIVE_SEGMENT_METERS = 8;
 
 const asMillis = value => {
   const result = value instanceof Date ? value.getTime() : new Date(value).getTime();
@@ -24,6 +27,19 @@ export function distanceMeters(a, b) {
   return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
 }
 
+const pointAccuracy = point => numeric(point?.accuracy);
+const reliablePoint = point => { const accuracy=pointAccuracy(point); return accuracy!=null&&accuracy>0&&accuracy<=MAX_ACCURACY_METERS; };
+const bearingDegrees = (a,b) => { const p1=radians(a.latitude),p2=radians(b.latitude),dl=radians(b.longitude-a.longitude),y=Math.sin(dl)*Math.cos(p2),x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl); return (Math.atan2(y,x)*180/Math.PI+360)%360; };
+const angleDifference = (a,b) => Math.abs(((a-b+540)%360)-180);
+function segmentMetrics(a,b) {
+ const dt=asMillis(b.observedAt)-asMillis(a.observedAt);
+ if(dt<=0||dt>MAX_SEGMENT_GAP_MS||!reliablePoint(a)||!reliablePoint(b))return null;
+ const rawDistance=distanceMeters(a,b),accuracyFloor=Math.max(12,(pointAccuracy(a)+pointAccuracy(b))*0.8),effectiveDistance=Math.max(0,rawDistance-accuracyFloor),derivedSpeed=rawDistance/(dt/1000)*3.6;
+ const speedA=a.speedKmh,speedB=b.speedKmh,bothStopped=speedA!=null&&speedB!=null&&speedA<3&&speedB<3;
+ if(bothStopped||rawDistance<=accuracyFloor||effectiveDistance<MIN_EFFECTIVE_SEGMENT_METERS||derivedSpeed<MIN_MOVING_SPEED_KMH||derivedSpeed>MAX_TRIP_SPEED_KMH)return null;
+ return {distanceMeters:effectiveDistance,durationMs:dt,derivedSpeedKmh:derivedSpeed,bearing:bearingDegrees(a,b),reportedMoving:(speedA??0)>=MIN_MOVING_SPEED_KMH&&(speedB??0)>=MIN_MOVING_SPEED_KMH};
+}
+
 function pointView(row) {
   return {
     id: String(row.id),
@@ -38,79 +54,24 @@ function pointView(row) {
   };
 }
 
-function summarizeTrip(rows, vehicleId, includePoints) {
-  const points = rows.map(pointView);
-  const first = points[0], last = points[points.length - 1];
-  const startMs = asMillis(first.observedAt), endMs = asMillis(last.observedAt);
-  let distance = 0, drivingMs = 0, maxSpeed = 0, speedSum = 0, speedCount = 0;
-  const stops = [];
-  let stopStart = null, previous = null;
-
-  for (const point of points) {
-    if (point.speedKmh != null) {
-      maxSpeed = Math.max(maxSpeed, point.speedKmh);
-      if (point.speedKmh >= MIN_MOVING_SPEED_KMH) {
-        speedSum += point.speedKmh;
-        speedCount++;
-      }
-    }
-    if (previous) {
-      const a = asMillis(previous.observedAt), b = asMillis(point.observedAt);
-      const dt = b - a;
-      const segmentDistance = distanceMeters(previous, point);
-      // Gaps and implausible jumps are not used for distance or speed statistics.
-      if (dt > 0 && dt <= MAX_SEGMENT_GAP_MS && segmentDistance <= 2000) {
-        distance += segmentDistance;
-        if ((previous.speedKmh ?? 0) >= MIN_MOVING_SPEED_KMH || (point.speedKmh ?? 0) >= MIN_MOVING_SPEED_KMH) {
-          drivingMs += dt;
-        }
-      }
-      const stopped = point.speedKmh != null && point.speedKmh < 3;
-      if (stopped && stopStart == null) stopStart = point.observedAt;
-      if (!stopped && stopStart != null) {
-        const stopEnd = asMillis(previous.observedAt);
-        const stopBegin = asMillis(stopStart);
-        if (stopEnd != null && stopBegin != null && stopEnd - stopBegin >= 120000) {
-          stops.push({ startedAt: stopStart, endedAt: previous.observedAt, durationSeconds: Math.round((stopEnd - stopBegin) / 1000), latitude: previous.latitude, longitude: previous.longitude });
-        }
-        stopStart = null;
-      }
-    }
-    previous = point;
+function summarizeTrip(rows,vehicleId,includePoints) {
+ const points=rows.map(p=>({...p})),first=points[0],last=points[points.length-1],startMs=asMillis(first.observedAt),endMs=asMillis(last.observedAt);
+ let distance=0,drivingMs=0,maxSpeed=0,speedSum=0,speedCount=0,stopStart=null,previous=null;const stops=[];
+ for(const point of points){
+  if(previous){
+   const segment=segmentMetrics(previous,point);
+   if(segment){distance+=segment.distanceMeters;drivingMs+=segment.durationMs;const speed=point.speedKmh??segment.derivedSpeedKmh;maxSpeed=Math.max(maxSpeed,speed);speedSum+=speed;speedCount++;}
+   const stopped=point.speedKmh!=null&&point.speedKmh<3&&reliablePoint(point);
+   if(stopped&&stopStart==null)stopStart=point.observedAt;
+   if(!stopped&&stopStart!=null){const stopEnd=asMillis(previous.observedAt),stopBegin=asMillis(stopStart);if(stopEnd!=null&&stopBegin!=null&&stopEnd-stopBegin>=120000)stops.push({startedAt:stopStart,endedAt:previous.observedAt,durationSeconds:Math.round((stopEnd-stopBegin)/1000),latitude:previous.latitude,longitude:previous.longitude});stopStart=null;}
   }
-
-  // Include a stop that is still in progress at the end of the available history.
-  if (stopStart != null && last) {
-    const stopBegin = asMillis(stopStart);
-    if (stopBegin != null && endMs - stopBegin >= 120000) {
-      stops.push({ startedAt: stopStart, endedAt: last.observedAt, durationSeconds: Math.round((endMs - stopBegin) / 1000), latitude: last.latitude, longitude: last.longitude });
-    }
-  }
-
-  const elapsedSeconds = Math.max(0, Math.round((endMs - startMs) / 1000));
-  const drivingSeconds = Math.min(elapsedSeconds, Math.round(drivingMs / 1000));
-  const distanceKm = distance / 1000;
-  const movingAverage = drivingSeconds > 0 ? distanceKm / (drivingSeconds / 3600) : (speedCount ? speedSum / speedCount : 0);
-  const wholeAverage = elapsedSeconds > 0 ? distanceKm / (elapsedSeconds / 3600) : 0;
-  const trip = {
-    id: `trip-${first.id}`,
-    vehicleId,
-    startedAt: first.observedAt,
-    endedAt: last.observedAt,
-    start: { latitude: first.latitude, longitude: first.longitude },
-    end: { latitude: last.latitude, longitude: last.longitude },
-    pointCount: points.length,
-    distanceKm: Number(distanceKm.toFixed(2)),
-    durationSeconds: elapsedSeconds,
-    drivingSeconds,
-    stopSeconds: Math.max(0, elapsedSeconds - drivingSeconds),
-    averageSpeedKmh: Number(movingAverage.toFixed(1)),
-    averageIncludingStopsKmh: Number(wholeAverage.toFixed(1)),
-    maxSpeedKmh: Number(maxSpeed.toFixed(1)),
-    stops
-  };
-  if (includePoints) trip.points = points;
-  return trip;
+  previous=point;
+ }
+ if(stopStart!=null&&last){const stopBegin=asMillis(stopStart);if(stopBegin!=null&&endMs-stopBegin>=120000)stops.push({startedAt:stopStart,endedAt:last.observedAt,durationSeconds:Math.round((endMs-stopBegin)/1000),latitude:last.latitude,longitude:last.longitude});}
+ const elapsedSeconds=Math.max(0,Math.round((endMs-startMs)/1000)),drivingSeconds=Math.min(elapsedSeconds,Math.round(drivingMs/1000)),distanceKm=distance/1000;
+ const trip={id:`trip-${first.id}`,vehicleId,startedAt:first.observedAt,endedAt:last.observedAt,start:{latitude:first.latitude,longitude:first.longitude},end:{latitude:last.latitude,longitude:last.longitude},pointCount:points.length,distanceKm:Number(distanceKm.toFixed(2)),durationSeconds:elapsedSeconds,drivingSeconds,stopSeconds:Math.max(0,elapsedSeconds-drivingSeconds),averageSpeedKmh:Number((speedCount?speedSum/speedCount:0).toFixed(1)),averageIncludingStopsKmh:Number((elapsedSeconds>0?distanceKm/(elapsedSeconds/3600):0).toFixed(1)),maxSpeedKmh:Number(maxSpeed.toFixed(1)),stops};
+ if(includePoints)trip.points=points;
+ return trip;
 }
 
 /**
@@ -118,77 +79,32 @@ function summarizeTrip(rows, vehicleId, includePoints) {
  * A trip is split after a long telemetry gap; point IDs make its ID stable
  * across requests and do not require a new database migration.
  */
-export function buildTrips(rows, { vehicleId = '', includePoints = false, gapMs = TRIP_GAP_MS, stationarySplitMs = 12 * 60 * 1000 } = {}) {
-  const valid = (Array.isArray(rows) ? rows : [])
-    .filter(row => row && row.id != null && asMillis(row.observed_at) != null
-      && Number.isFinite(Number(row.latitude)) && Number.isFinite(Number(row.longitude)))
-    .slice()
-    .sort((a, b) => asMillis(a.observed_at) - asMillis(b.observed_at) || Number(a.id) - Number(b.id));
-
-  const groups = [];
-  let current = [], stationary = [], previous = null;
-  const flush = () => {
-    if (current.length) groups.push(current);
-    current = [];
-    stationary = [];
-  };
-  const stationaryDuration = () => stationary.length < 2 ? 0
-    : asMillis(stationary[stationary.length - 1].observed_at) - asMillis(stationary[0].observed_at);
-
-  for (const row of valid) {
-    const previousTime = previous ? asMillis(previous.observed_at) : null;
-    const rowTime = asMillis(row.observed_at);
-    const gap = previousTime == null ? 0 : rowTime - previousTime;
-    if (previous && gap > gapMs) {
-      if (stationary.length && stationaryDuration() < stationarySplitMs) current.push(...stationary);
-      flush();
-      // Keep the first valid sample after a telemetry gap as the start candidate
-      // for the next trip; otherwise the first point is silently lost.
-      current = [row];
-      previous = row;
-      continue;
-    }
-
-    const movement = previous && gap > 0 && gap <= MAX_SEGMENT_GAP_MS
-      ? distanceMeters(previous, row) : 0;
-    const measuredSpeed = speedKmh(row.speed);
-    const isMoving = (measuredSpeed != null && measuredSpeed >= MIN_MOVING_SPEED_KMH)
-      || movement >= 12;
-
-    if (isMoving) {
-      if (stationary.length) {
-        if (stationaryDuration() >= stationarySplitMs) {
-          // A prolonged stop closes the previous trip. Do not connect the next
-          // departure to the parked vehicle's coordinates as if it were driving.
-          if (current.length) {
-            current.push(stationary[0]);
-            groups.push(current);
-            current = [];
-          }
-        } else {
-          current.push(...stationary);
-        }
-        stationary = [];
-      }
-      current.push(row);
-    } else if (current.length) {
-      stationary.push(row);
-      if (stationaryDuration() >= stationarySplitMs) {
-        current.push(stationary[0]);
-        groups.push(current);
-        current = [];
-        stationary = [];
-      }
-    }
-    previous = row;
+export function buildTrips(rows,{vehicleId='',includePoints=false,gapMs=TRIP_GAP_MS,stationarySplitMs=12*60*1000}={}) {
+ const valid=(Array.isArray(rows)?rows:[]).filter(row=>row&&row.id!=null&&asMillis(row.observed_at)!=null&&Number.isFinite(Number(row.latitude))&&Number.isFinite(Number(row.longitude))&&Number(row.latitude)>=-90&&Number(row.latitude)<=90&&Number(row.longitude)>=-180&&Number(row.longitude)<=180&&numeric(row.accuracy)!=null&&numeric(row.accuracy)>0&&numeric(row.accuracy)<=MAX_ACCURACY_METERS).slice().sort((a,b)=>asMillis(a.observed_at)-asMillis(b.observed_at)||Number(a.id)-Number(b.id)).map(pointView);
+ if(valid.length<2)return [];
+ const segments=valid.slice(1).map((point,index)=>segmentMetrics(valid[index],point));
+ const confirmed=segments.map((segment,index)=>{
+  if(!segment)return false;
+  if(segment.reportedMoving)return true;
+  const previous=segments[index-1],next=segments[index+1];
+  return Boolean((previous&&angleDifference(previous.bearing,segment.bearing)<=85)||(next&&angleDifference(segment.bearing,next.bearing)<=85));
+ });
+ const groups=[];let current=[],pending=[],lastMovingAt=0;
+ const flush=()=>{if(current.length>=2)groups.push(current);current=[];pending=[];lastMovingAt=0;};
+ for(let i=0;i<segments.length;i++){
+  const a=valid[i],b=valid[i+1],at=asMillis(b.observedAt);
+  if(confirmed[i]){
+   if(!current.length)current=[a,b];
+   else if(pending.length){const pause=at-lastMovingAt;if(pause>stationarySplitMs||pause>gapMs){flush();current=[a,b];}else current.push(...pending,b);pending=[];}
+   else if(current[current.length-1].id!==a.id)current.push(a,b);
+   else current.push(b);
+   lastMovingAt=at;
+  }else if(current.length){
+   if(!pending.length&&current[current.length-1].id!==a.id)pending.push(a);
+   pending.push(b);
+   if(at-lastMovingAt>=stationarySplitMs)flush();
   }
-
-  if (stationary.length && stationaryDuration() < stationarySplitMs) current.push(...stationary);
-  if (current.length) groups.push(current);
-
-  // Stable ordering and IDs make each trip selectable across refreshes.
-  return groups
-    .filter(group => group.length >= 2)
-    .map(group => summarizeTrip(group, vehicleId, includePoints))
-    .reverse();
+ }
+ if(current.length){if(pending.length&&asMillis(pending[pending.length-1].observedAt)-lastMovingAt<stationarySplitMs)current.push(...pending);flush();}
+ return groups.map(group=>summarizeTrip(group,vehicleId,includePoints)).reverse();
 }
