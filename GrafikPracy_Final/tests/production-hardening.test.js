@@ -232,6 +232,12 @@ test('GPS tracking requires a central device assignment and sends positions thro
   assert.ok(service.includes("fetch(API_BASE_URL+'/gps/device'"));
 assert.ok(service.includes("if(!assignment?.vehicleId)return null;"));
   assert.ok(service.includes("if(!assignment?.vehicleId)return {ok:false,reason:'device-not-assigned'};"));
+  const startStart=service.indexOf('export async function startVehicleLocationTracking');
+  const startEnd=service.indexOf('export async function stopVehicleLocationTracking',startStart);
+  const startBlock=service.slice(startStart,startEnd);
+  assert.match(startBlock,/catch\(e\)\{[\s\S]*const cached=await getConfig\(\)/);
+  assert.match(startBlock,/if\(!cached\?\.vehicleId\)throw e/);
+  assert.match(startBlock,/startsWith\('GPS_ASSIGNMENT_NETWORK_ERROR'\)/);
   assert.match(service, /apiPostGps\(payload,deviceToken\)/);
   assert.match(service, /normalizeVehicleId\(assignment\.vehicleId\)/);
 });
@@ -244,12 +250,33 @@ test('fleet assignment UI uses locator uid consistently', async () => {
   assert.match(panel, /a\.user_id===u\.uid/);
 assert.ok(panel.includes('users.filter(u=>u.role===\'locator\').map(u=><TouchableOpacity key={u.id}'));
 });
-test('App.js stays a thin wrapper and cannot substitute static runtime fixtures', async () => {
+test('App.js stays a thin wrapper around the standalone telematics runtime', async () => {
   const fs = await import('node:fs/promises');
   const app = await fs.readFile(new URL('../App.js', import.meta.url), 'utf8');
-  assert.match(app, /import AppRuntime from '\.\/AppRuntime'/);
-assert.ok(app.includes('return <CrashBoundary><AppRuntime /></CrashBoundary>;'));
+  const telemetry = await fs.readFile(new URL('../TelematicsApp.js', import.meta.url), 'utf8');
+  assert.match(app, /import TelematicsApp from '\.\/TelematicsApp'/);
+  assert.ok(app.includes('return <CrashBoundary><TelematicsApp /></CrashBoundary>;'));
+  assert.doesNotMatch(app, /AppRuntime/);
+  assert.match(telemetry, /startVehicleLocationTracking/);
+  assert.match(telemetry, /TripHistoryPanel/);
   assert.doesNotMatch(app, /export const/);
+});
+
+test('3gf has a separate Android package and deep-link scheme', async () => {
+  const fs = await import('node:fs/promises');
+  const config = JSON.parse(await fs.readFile(new URL('../app.json', import.meta.url), 'utf8')).expo;
+  assert.equal(config.name, '3gf');
+  assert.equal(config.android.package, 'pl.grafikpracy.threegf');
+  assert.equal(config.scheme, 'grafikpracy3gf');
+  const telemetry = await fs.readFile(new URL('../TelematicsApp.js', import.meta.url), 'utf8');
+  const trips = await fs.readFile(new URL('../TripHistoryPanel.js', import.meta.url), 'utf8');
+  assert.match(telemetry, /parsed\.protocol!=='grafikpracy3gf:'/);
+  assert.match(telemetry, /parsed\.hostname==='trip'/);
+  assert.match(trips, /initialTripId/);
+  assert.match(telemetry, /USER_CACHE_KEY/);
+  assert.match(telemetry, /cachedUser/);
+  assert.match(telemetry, /e\?\.status===401\|\|e\?\.status===403/);
+  assert.match(telemetry, /clearVehiclePoint/);
 });
 
 test('admin account controls use the central API and never Firebase Auth or Functions', () => {

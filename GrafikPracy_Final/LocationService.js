@@ -4,14 +4,14 @@ import * as Location from 'expo-location';
 import {Platform, AppState} from 'react-native';
 import {API_BASE_URL, apiPostGps} from './apiClient';
 
-export const LOCATION_TASK_NAME='grafik-pracy-vehicle-location-v2';
-export const LOCATION_CONFIG_KEY='grafik-pracy-location-config-v2';
-export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
-export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
-export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
+export const LOCATION_TASK_NAME='3gf-vehicle-location-v1';
+export const LOCATION_CONFIG_KEY='3gf-location-config-v1';
+export const LOCATION_CURRENT_KEY='3gf-location-current-v1';
+export const LOCATION_DEVICE_TOKEN_KEY='3gf-location-device-token-v1';
+export const LOCATION_DIAGNOSTICS_KEY='3gf-location-diagnostics-v1';
 const LOCATION_OPTIONS_VERSION=4;
 const STALE_THRESHOLD_MS = 2.5 * 60 * 1000; // 2.5 minuty
-const LOCATION_PENDING_QUEUE_KEY = 'grafik-pracy-location-pending-queue-v1';
+const LOCATION_PENDING_QUEUE_KEY = '3gf-location-pending-queue-v1';
 const MAX_PENDING_GPS_POINTS = 250;
 const MAX_GPS_QUEUE_FLUSH_PER_PASS = 20;
 
@@ -100,8 +100,8 @@ const LOCATION_OPTIONS={
   pausesUpdatesAutomatically:false,
   showsBackgroundLocationIndicator:true,
   foregroundService:{
-    notificationTitle:'Grafik Pracy • GPS aktywny',
-    notificationBody:'Lokalizacja auta jest udostępniana również przy zablokowanym ekranie.',
+    notificationTitle:'3gf • GPS aktywny',
+    notificationBody:'3gf udostępnia lokalizację pojazdu również przy zablokowanym ekranie.',
     notificationColor:'#467ff1',
     killServiceOnDestroy:false
   }
@@ -192,7 +192,18 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}){
   if(!API_BASE_URL)return {ok:false,reason:'api-not-configured'};
   const token=await getLocationDeviceToken();
   if(!token)return {ok:false,reason:'device-token-missing'};
-  const assignment=await getDeviceAssignment(token);
+  let assignment;
+  try{
+    assignment=await getDeviceAssignment(token);
+  }catch(e){
+    if(!String(e?.message||e).startsWith('GPS_ASSIGNMENT_NETWORK_ERROR'))throw e;
+    // Przy braku sieci pozwól wznowić śledzenie na ostatnim znanym przypisaniu.
+    // Po odzyskaniu połączenia serwer ponownie zweryfikuje token i pojazd.
+    const cached=await getConfig();
+    if(!cached?.vehicleId)throw e;
+    assignment={vehicleId:cached.vehicleId,registration:cached.registration||''};
+    await patchDiagnostics({lastAssignmentFallbackAt:Date.now(),lastAssignmentFallbackError:String(e?.message||e).slice(0,240)});
+  }
   if(!assignment?.vehicleId)return {ok:false,reason:'device-not-assigned'};
   // Centralne przypisanie z API jest jedynym źródłem prawdy.
   // Lokalnie zapisany numer auta może być nieaktualny po zmianie przypisania

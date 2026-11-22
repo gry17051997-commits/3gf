@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {Modal, Platform, ScrollView, Text, TouchableOpacity, View} from 'react-native';
 import {WebView} from 'react-native-webview';
 import {apiGetGpsTrips, apiGetGpsTrip} from './apiClient';
@@ -19,7 +19,7 @@ const tripMapHtml = (points, routeId = '', matchedSegments = []) => {
   return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#101722}.leaflet-container{height:100%;width:100%;background:#101722}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const points=' + data + ';const routeColor=' + JSON.stringify(routeColor) + ';const matched=' + JSON.stringify(matchedSegments || []) + ';const map=L.map("map").setView([51,16.8],7);let activeTileUrl=' + JSON.stringify(tileUrl) + ';let fallbackTiles=false;let tiles=L.tileLayer(activeTileUrl,{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);tiles.on("tileerror",function(){if(!fallbackTiles&&activeTileUrl.indexOf("api.maptiler.com")>=0){fallbackTiles=true;map.removeLayer(tiles);activeTileUrl="https://tile.openstreetmap.org/{z}/{x}/{y}.png";tiles=L.tileLayer(activeTileUrl,{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);}});const coords=points.map(p=>[+p.latitude,+p.longitude]);if(coords.length){const segments=[];let segment=[],previous=null;const meters=(a,b)=>{const rad=v=>v*Math.PI/180,dl=rad(b[1]-a[1]),dp=rad(b[0]-a[0]),h=Math.sin(dp/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dl/2)**2;return 6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));};points.forEach((p,i)=>{const coord=coords[i],time=Date.parse(p.observedAt);if(previous){const dt=time-previous.time;if(dt<=0||dt>120000||meters(previous.coord,coord)>2000){if(segment.length>1)segments.push(segment);segment=[];} }if(!segment.length)segment.push(coord);else segment.push(coord);previous={coord,time};});if(segment.length>1)segments.push(segment);const drawSegments=matched.length?matched:segments;drawSegments.forEach(line=>L.polyline(line,{color:routeColor,weight:5,opacity:.95}).addTo(map));points.forEach(p=>L.circleMarker([p.latitude,p.longitude],{radius:5,color:"#fff",weight:2,fillColor:routeColor,fillOpacity:1}).bindPopup((p.speedKmh==null?"Brak prędkości":Math.round(p.speedKmh)+" km/h")+"<br>"+new Date(p.observedAt).toLocaleString("pl-PL")).on("click",function(){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify({type:"gpsPoint",point:p}));}}).addTo(map));L.circleMarker(coords[0],{radius:7,color:"#fff",fillColor:"#22c55e",fillOpacity:1}).bindPopup("START").addTo(map);L.circleMarker(coords[coords.length-1],{radius:7,color:"#fff",fillColor:"#ef4444",fillOpacity:1}).addTo(map);if(coords.length>1){map.fitBounds(coords,{padding:[18,18]});}}setTimeout(()=>{map.invalidateSize(true);},250);</script></body></html>';
 };
 
-export default function TripHistoryPanel({vehicleId}) {
+export default function TripHistoryPanel({vehicleId,initialTripId=''}) {
   const [trips, setTrips] = useState([]);
   const [selected, setSelected] = useState(null);
   const [selectedPoint, setSelectedPoint] = useState(null);
@@ -64,6 +64,14 @@ export default function TripHistoryPanel({vehicleId}) {
     } catch (e) { setError(String(e?.message || 'Nie udało się otworzyć trasy')); }
     finally { setLoading(false); }
   };
+  const openedInitialTrip=useRef('');
+  useEffect(()=>{
+    if(!initialTripId||!vehicleId||!trips.length||openedInitialTrip.current===String(initialTripId))return;
+    const trip=trips.find(item=>String(item.id)===String(initialTripId));
+    if(!trip)return;
+    openedInitialTrip.current=String(initialTripId);
+    openTrip(trip);
+  },[initialTripId,vehicleId,trips]);
   const card = {backgroundColor:'#141922',borderRadius:18,padding:14,marginBottom:10,borderWidth:1,borderColor:'#303a4a'};
   const title = {color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7};
   const sub = {color:'#aeb8c8',fontSize:12,marginTop:4};

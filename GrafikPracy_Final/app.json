@@ -1,8 +1,9 @@
 {
   "expo": {
-    "name": "Grafik Pracy",
-    "slug": "grafikpracyapp",
-    "version": "1.0.8",
+    "name": "3gf",
+    "slug": "grafikpracy-3gf",
+    "scheme": "grafikpracy3gf",
+    "version": "1.0.9",
     "orientation": "portrait",
     "newArchEnabled": false,
     "userInterfaceStyle": "dark",
@@ -11,8 +12,8 @@
       "output": "single"
     },
     "android": {
-      "package": "pl.grafikpracy.app",
-      "versionCode": 12,
+      "package": "pl.grafikpracy.threegf",
+      "versionCode": 13,
       "adaptiveIcon": {
         "foregroundImage": "./icon-512.png",
         "backgroundColor": "#11151c"
@@ -27,19 +28,14 @@
         "android.permission.POST_NOTIFICATIONS"
       ]
     },
-    "extra": {
-      "eas": {
-        "projectId": "a1bf7cf9-1bfd-4bd0-8392-e9c3266ce9b6"
-      }
-    },
     "owner": "kafel17",
     "plugins": [
       "expo-notifications",
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Grafik Pracy używa lokalizacji służbowego telefonu, aby pokazywać auto na żywo i automatycznie dobierać raporty.",
-          "locationAlwaysAndWhenInUsePermission": "Grafik Pracy używa lokalizacji służbowego telefonu w tle, aby pokazywać auto na żywo i automatycznie dobierać raporty.",
+          "locationWhenInUsePermission": "3gf używa lokalizacji telefonu, aby rejestrować i udostępniać pozycję oraz historię przejazdów pojazdu.",
+          "locationAlwaysAndWhenInUsePermission": "3gf używa lokalizacji telefonu w tle, aby rejestrować i udostępniać pozycję oraz historię przejazdów pojazdu.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
