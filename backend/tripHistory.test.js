@@ -25,7 +25,7 @@ test('buildTrips separates independent trips after a long GPS gap', () => {
 test('buildTrips calculates duration, distance and speed statistics', () => {
   const rows = [
     point(10, '2026-10-17T08:00:00Z', 51.0, 17.0, 10),
-    point(11, '2026-10-17T08:00:10Z', 51.0001, 17.0001, 12)
+    point(11, '2026-10-17T08:00:10Z', 51.0006, 17.0006, 12)
   ];
   const [trip] = buildTrips(rows, { vehicleId: 'v' });
   assert.equal(trip.durationSeconds, 10);
@@ -36,7 +36,7 @@ test('buildTrips calculates duration, distance and speed statistics', () => {
 
 test('invalid rows are ignored and duplicate ordering remains stable', () => {
   const rows = [
-    point(2, '2026-10-17T08:00:10Z', 51.0001, 17.0001),
+    point(2, '2026-10-17T08:00:10Z', 51.0006, 17.0006),
     point(1, '2026-10-17T08:00:00Z', 51.0, 17.0),
     { id: 3, observed_at: 'invalid', latitude: 0, longitude: 0 }
   ];
@@ -53,7 +53,7 @@ test('distance is zero for identical coordinates', () => {
 test('buildTrips closes a trip after a prolonged stationary stop', () => {
   const rows = [
     point(20, '2026-10-17T08:00:00Z', 51.0, 17.0, 10),
-    point(21, '2026-10-17T08:00:10Z', 51.0001, 17.0001, 10),
+    point(21, '2026-10-17T08:00:10Z', 51.0006, 17.0006, 10),
     point(22, '2026-10-17T08:05:00Z', 51.0001, 17.0001, 0),
     point(23, '2026-10-17T08:10:00Z', 51.0001, 17.0001, 0),
     point(24, '2026-10-17T08:15:00Z', 51.0001, 17.0001, 0),
@@ -68,7 +68,7 @@ test('buildTrips closes a trip after a prolonged stationary stop', () => {
 
 test('buildTrips handles newest-first database results without losing chronology', () => {
   const newestFirst = [
-    point(4, '2026-10-17T09:00:10Z', 51.1001, 17.1001),
+    point(4, '2026-10-17T09:00:10Z', 51.1006, 17.1006),
     point(3, '2026-10-17T09:00:00Z', 51.1, 17.1),
     point(2, '2026-10-17T08:00:10Z', 51.0001, 17.0001),
     point(1, '2026-10-17T08:00:00Z', 51.0, 17.0)
@@ -84,7 +84,7 @@ test('buildTrips handles newest-first database results without losing chronology
 test('buildTrips includes a stop that continues through the last GPS sample', () => {
   const rows = [
     point(30, '2026-10-17T08:00:00Z', 51.0, 17.0, 10),
-    point(31, '2026-10-17T08:00:10Z', 51.0001, 17.0001, 10),
+    point(31, '2026-10-17T08:00:10Z', 51.0006, 17.0006, 10),
     point(32, '2026-10-17T08:01:00Z', 51.0001, 17.0001, 0),
     point(33, '2026-10-17T08:02:00Z', 51.0001, 17.0001, 0),
     point(34, '2026-10-17T08:03:00Z', 51.0001, 17.0001, 0)
