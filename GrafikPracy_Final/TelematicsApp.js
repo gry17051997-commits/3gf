@@ -67,11 +67,9 @@ export default function TelematicsApp(){
 
   const refreshDiagnostics=useCallback(async()=>{
     try{
-      const [nextConfig,nextDiagnostics,nextToken]=await Promise.all([getVehicleLocationConfig(),getLocationDiagnostics(),getLocationDeviceToken()]);
+      const [nextConfig,nextDiagnostics]=await Promise.all([getVehicleLocationConfig(),getLocationDiagnostics()]);
       setConfig(nextConfig||{});
       setDiagnostics(nextDiagnostics||{});
-      setDeviceToken(nextToken||'');
-      setTokenSaved(!!nextToken);
     }catch(e){setError(String(e?.message||'Nie udało się odczytać diagnostyki GPS.'));}
   },[]);
 
@@ -92,6 +90,14 @@ export default function TelematicsApp(){
   const refreshAll=useCallback(async()=>{
     await Promise.all([refreshVehicles(),refreshDiagnostics()]);
   },[refreshVehicles,refreshDiagnostics]);
+
+  useEffect(()=>{
+    let active=true;
+    getLocationDeviceToken().then(token=>{
+      if(active){setDeviceToken(token||'');setTokenSaved(!!token);}
+    }).catch(()=>{});
+    return()=>{active=false;};
+  },[]);
 
   useEffect(()=>{
     let alive=true;
