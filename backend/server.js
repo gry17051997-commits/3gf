@@ -256,7 +256,7 @@ app.post('/api/gps',async(req,res)=>{
   const currentResult=await q('INSERT INTO gps_current(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT(vehicle_id) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,accuracy=EXCLUDED.accuracy,altitude=EXCLUDED.altitude,speed=EXCLUDED.speed,heading=EXCLUDED.heading,observed_at=EXCLUDED.observed_at,received_at=NOW() WHERE gps_current.observed_at<=EXCLUDED.observed_at',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
   let historyEligible=b.historyEligible===true&&accuracy!=null&&accuracy>0&&accuracy<=35;
   if(b.historyEligible!==false&&b.historyEligible!==true&&accuracy!=null&&accuracy>0&&accuracy<=35){
-    if(speed!=null&&speed>=1.4)historyEligible=true;
+    if(speed!=null&&speed>=2.2)historyEligible=true;
     else{
       const lastHistory=await q('SELECT latitude,longitude,accuracy,observed_at FROM gps_history WHERE vehicle_id=$1 ORDER BY observed_at DESC LIMIT 1',[v.id]);
       const previous=lastHistory.rows[0];
