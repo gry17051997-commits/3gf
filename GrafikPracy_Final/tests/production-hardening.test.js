@@ -267,6 +267,10 @@ test('3gf has a separate Android package and deep-link scheme', async () => {
   assert.match(telemetry, /parsed\.protocol!=='grafikpracy3gf:'/);
   assert.match(telemetry, /parsed\.hostname==='trip'/);
   assert.match(trips, /initialTripId/);
+  assert.match(telemetry, /USER_CACHE_KEY/);
+  assert.match(telemetry, /cachedUser/);
+  assert.match(telemetry, /e\?\.status===401\|\|e\?\.status===403/);
+  assert.match(telemetry, /clearVehiclePoint/);
 });
 
 test('admin account controls use the central API and never Firebase Auth or Functions', () => {
