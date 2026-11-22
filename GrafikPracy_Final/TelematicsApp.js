@@ -1,5 +1,5 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {ActivityIndicator,AppState,Platform,SafeAreaView,ScrollView,Text,TextInput,TouchableOpacity,View} from 'react-native';
+import {ActivityIndicator,AppState,Linking,Platform,SafeAreaView,ScrollView,Text,TextInput,TouchableOpacity,View} from 'react-native';
 import {WebView} from 'react-native-webview';
 import {apiLogin,apiLogout,apiMe,apiGetGps,apiGetMyGps} from './apiClient';
 import {getLocationDeviceToken,setLocationDeviceToken,getVehicleLocationConfig,getLocationDiagnostics,startVehicleLocationTracking,stopVehicleLocationTracking,ensureVehicleLocationTracking} from './LocationService';
@@ -44,6 +44,8 @@ export default function TelematicsApp(){
   const [tokenSaved,setTokenSaved]=useState(false);
   const [vehicles,setVehicles]=useState([]);
   const [selectedVehicleId,setSelectedVehicleId]=useState('');
+  const [initialTripId,setInitialTripId]=useState('');
+  const [initialTripVehicleId,setInitialTripVehicleId]=useState('');
   const [config,setConfig]=useState({});
   const [diagnostics,setDiagnostics]=useState({});
   const [loading,setLoading]=useState(false);
@@ -119,6 +121,29 @@ export default function TelematicsApp(){
     if(!mapReady||!mapRef.current||!hasPosition)return;
     mapRef.current.injectJavaScript('window.setVehiclePoint&&window.setVehiclePoint('+latitude+','+longitude+'); true;');
   },[mapReady,latitude,longitude,hasPosition]);
+
+  useEffect(()=>{
+    const applyDeepLink=rawUrl=>{
+      try{
+        const parsed=new URL(rawUrl);
+        if(parsed.protocol!=='grafikpracy3gf:')return;
+        const parts=parsed.pathname.split('/').filter(Boolean);
+        if(parsed.hostname==='vehicle'&&parts[0]){
+          setSelectedVehicleId(decodeURIComponent(parts[0]));
+          setInitialTripId('');
+          setInitialTripVehicleId('');
+        }else if(parsed.hostname==='trip'&&parts[0]&&parts[1]){
+          const vehicleId=decodeURIComponent(parts[0]);
+          setSelectedVehicleId(vehicleId);
+          setInitialTripVehicleId(vehicleId);
+          setInitialTripId(decodeURIComponent(parts[1]));
+        }
+      }catch{}
+    };
+    Linking.getInitialURL().then(url=>{if(url)applyDeepLink(url);}).catch(()=>{});
+    const subscription=Linking.addEventListener('url',event=>applyDeepLink(event.url));
+    return()=>subscription.remove();
+  },[]);
 
   const login=async()=>{
     if(!email.trim()||!password)return;
@@ -222,7 +247,7 @@ export default function TelematicsApp(){
       <Text style={styles.muted}>W Androidzie śledzenie działa jako usługa lokalizacji z widocznym powiadomieniem. System może ograniczyć działanie po wymuszonym zatrzymaniu aplikacji.</Text>
     </View>
 
-    {selectedVehicle?.id?<TripHistoryPanel vehicleId={String(selectedVehicle.id)}/>:null}
+    {selectedVehicle?.id?<TripHistoryPanel vehicleId={String(selectedVehicle.id)} initialTripId={initialTripVehicleId===String(selectedVehicle.id)?initialTripId:''}/>:null}
     {!!error&&<Text style={styles.error}>{error}</Text>}
   </ScrollView></SafeAreaView>;
 }
