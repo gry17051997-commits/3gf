@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 
-const RELEASES_URL='https://api.github.com/repos/gry17051997-commits/3gf/releases/latest';
+const RELEASES_URL='https://api.github.com/repos/gry17051997-commits/3gf/releases/tags/threegf-latest';
 const APK_NAME='3gf.apk';
 const PACKAGE_NAME='pl.grafikpracy.threegf';
 const APK_MIME='application/vnd.android.package-archive';
@@ -32,7 +32,7 @@ export default function UpdateBanner(){
       if(!response.ok)return;
       const data=await response.json();
       await AsyncStorage.setItem(LAST_CHECK_KEY,String(Date.now()));
-      const version=String(data.tag_name||'').replace(/^v/i,'');
+      const version=(String(data.name||'')+' '+String(data.tag_name||'')).match(/\d+\.\d+\.\d+/)?.[0] || '';
       const apk=(data.assets||[]).find(asset=>asset.name===APK_NAME&&asset.browser_download_url);
       if(version&&apk&&isNewer(version,currentVersion))setRelease({version,apk,notes:String(data.body||'').trim()});
       else setRelease(null);
