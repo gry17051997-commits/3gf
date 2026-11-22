@@ -161,3 +161,4 @@ export async function runTransaction(_db,fn){const pending=[];const tx={get:getD
 
 export async function apiGetGpsTrips(vehicleId){return (await api('/gps/'+encodeURIComponent(vehicleId)+'/trips')).trips;}
 export async function apiGetGpsTrip(vehicleId,tripId){return (await api('/gps/'+encodeURIComponent(vehicleId)+'/trips/'+encodeURIComponent(tripId))).trip;}
+export async function apiGetGpsHistory(vehicleId){return (await api('/gps/'+encodeURIComponent(vehicleId)+'/history')).history;}
