@@ -196,6 +196,7 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}){
   try{
     assignment=await getDeviceAssignment(token);
   }catch(e){
+    if(!String(e?.message||e).startsWith('GPS_ASSIGNMENT_NETWORK_ERROR'))throw e;
     // Przy braku sieci pozwól wznowić śledzenie na ostatnim znanym przypisaniu.
     // Po odzyskaniu połączenia serwer ponownie zweryfikuje token i pojazd.
     const cached=await getConfig();
