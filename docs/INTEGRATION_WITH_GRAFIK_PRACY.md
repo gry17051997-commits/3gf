@@ -23,6 +23,8 @@
 - 3gf otwierane z Grafiku Pracy otrzymuje wyłącznie identyfikator pojazdu/trasy i żądany ekran.
 - Nie przekazywać bearer tokenu ani tokenu urządzenia w deep linku.
 - SSO, jeśli zostanie dodane, musi używać jednorazowego kodu wymiany o krótkim TTL, a nie tokenu w URI.
+- Obsługiwany format: `grafikpracy3gf://vehicle/{vehicleId}` otwiera pojazd oraz `grafikpracy3gf://trip/{vehicleId}/{tripId}` otwiera wskazany przejazd.
+- Grafik Pracy ma przycisk otwierający aktualnie wybrany pojazd w 3gf z ekranu lokalizacji live.
 
 ## Nie wykonywać
 - Nie zmieniać applicationId Grafiku Pracy.
