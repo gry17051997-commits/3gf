@@ -232,6 +232,11 @@ test('GPS tracking requires a central device assignment and sends positions thro
   assert.ok(service.includes("fetch(API_BASE_URL+'/gps/device'"));
 assert.ok(service.includes("if(!assignment?.vehicleId)return null;"));
   assert.ok(service.includes("if(!assignment?.vehicleId)return {ok:false,reason:'device-not-assigned'};"));
+  const startStart=service.indexOf('export async function startVehicleLocationTracking');
+  const startEnd=service.indexOf('export async function stopVehicleLocationTracking',startStart);
+  const startBlock=service.slice(startStart,startEnd);
+  assert.match(startBlock,/catch\(e\)\{[\s\S]*const cached=await getConfig\(\)/);
+  assert.match(startBlock,/if\(!cached\?\.vehicleId\)throw e/);
   assert.match(service, /apiPostGps\(payload,deviceToken\)/);
   assert.match(service, /normalizeVehicleId\(assignment\.vehicleId\)/);
 });
