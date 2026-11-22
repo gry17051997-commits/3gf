@@ -1,8 +1,9 @@
 {
   "expo": {
-    "name": "Grafik Pracy",
-    "slug": "grafikpracyapp",
-    "version": "1.0.8",
+    "name": "3gf",
+    "slug": "grafikpracy-3gf",
+    "scheme": "grafikpracy3gf",
+    "version": "1.0.9",
     "orientation": "portrait",
     "newArchEnabled": false,
     "userInterfaceStyle": "dark",
@@ -11,8 +12,8 @@
       "output": "single"
     },
     "android": {
-      "package": "pl.grafikpracy.app",
-      "versionCode": 12,
+      "package": "pl.grafikpracy.threegf",
+      "versionCode": 13,
       "adaptiveIcon": {
         "foregroundImage": "./icon-512.png",
         "backgroundColor": "#11151c"
