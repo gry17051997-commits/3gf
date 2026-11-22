@@ -262,6 +262,11 @@ test('3gf has a separate Android package and deep-link scheme', async () => {
   assert.equal(config.name, '3gf');
   assert.equal(config.android.package, 'pl.grafikpracy.threegf');
   assert.equal(config.scheme, 'grafikpracy3gf');
+  const telemetry = await fs.readFile(new URL('../TelematicsApp.js', import.meta.url), 'utf8');
+  const trips = await fs.readFile(new URL('../TripHistoryPanel.js', import.meta.url), 'utf8');
+  assert.match(telemetry, /parsed\.protocol!=='grafikpracy3gf:'/);
+  assert.match(telemetry, /parsed\.hostname==='trip'/);
+  assert.match(trips, /initialTripId/);
 });
 
 test('admin account controls use the central API and never Firebase Auth or Functions', () => {
