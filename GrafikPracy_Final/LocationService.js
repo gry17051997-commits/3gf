@@ -93,8 +93,8 @@ const getDeviceAssignment=async token=>{
 
 const LOCATION_OPTIONS={
   accuracy:Location.Accuracy.High,
-  timeInterval:10000,
-  distanceInterval:10,
+  timeInterval:15000,
+  distanceInterval:20,
   deferredUpdatesInterval:0,
   deferredUpdatesDistance:0,
   pausesUpdatesAutomatically:false,
@@ -115,6 +115,20 @@ async function saveLocationInternal(location){
   const deviceToken=await getLocationDeviceToken();
   if(!deviceToken)return;
   const c=location.coords,now=Date.now();
+  const accuracy=Number(c.accuracy);
+  if(!Number.isFinite(accuracy)||accuracy<=0||accuracy>MAX_UPLOAD_ACCURACY_METERS){
+    const diagnostics=await getLocationDiagnostics();
+    await patchDiagnostics({
+      gpsRejectedAccuracyCount:(Number(diagnostics.gpsRejectedAccuracyCount)||0)+1,
+      gpsLastRejectedAccuracy:Number.isFinite(accuracy)?accuracy:null,
+      gpsLastRejectedAt:now,
+      gpsAccuracyLimit:MAX_UPLOAD_ACCURACY_METERS
+    });
+    return;
+  }
+  if(!Number.isFinite(Number(c.latitude))||!Number.isFinite(Number(c.longitude))
+      ||Number(c.latitude)<-90||Number(c.latitude)>90||Number(c.longitude)<-180||Number(c.longitude)>180)return;
+  await patchDiagnostics({gpsLastAcceptedAccuracy:accuracy,gpsLastAcceptedAt:now,gpsAccuracyLimit:MAX_UPLOAD_ACCURACY_METERS});
   const payload={
     latitude:Number(c.latitude),
     longitude:Number(c.longitude),
