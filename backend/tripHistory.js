@@ -37,7 +37,7 @@ function segmentMetrics(a,b) {
  const rawDistance=distanceMeters(a,b),accuracyFloor=Math.max(12,(pointAccuracy(a)+pointAccuracy(b))*0.8),effectiveDistance=Math.max(0,rawDistance-accuracyFloor),derivedSpeed=rawDistance/(dt/1000)*3.6;
  const speedA=a.speedKmh,speedB=b.speedKmh,bothStopped=speedA!=null&&speedB!=null&&speedA<3&&speedB<3;
  if(bothStopped||rawDistance<=accuracyFloor||effectiveDistance<MIN_EFFECTIVE_SEGMENT_METERS||derivedSpeed<MIN_MOVING_SPEED_KMH||derivedSpeed>MAX_TRIP_SPEED_KMH)return null;
- return {distanceMeters:effectiveDistance,durationMs:dt,derivedSpeedKmh:derivedSpeed,bearing:bearingDegrees(a,b),reportedMoving:(speedA??0)>=MIN_MOVING_SPEED_KMH&&(speedB??0)>=MIN_MOVING_SPEED_KMH};
+ return {distanceMeters:effectiveDistance,durationMs:dt,derivedSpeedKmh:derivedSpeed,bearing:bearingDegrees(a,b),reportedMoving:(speedA??0)>=8&&(speedB??0)>=8};
 }
 
 function pointView(row) {
