@@ -192,12 +192,12 @@ jobs:
             adb wait-for-device
             adb install -r "$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk"
             adb logcat -c
-            adb shell monkey -p pl.grafikpracy.app 1
+            adb shell monkey -p pl.grafikpracy.threegf 1
             sleep 8
             adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
             adb pull /sdcard/window.xml "$GITHUB_WORKSPACE/runtime-window.xml" >/dev/null 2>&1
             adb logcat -d > "$GITHUB_WORKSPACE/runtime-logcat.txt"
-            adb shell pidof pl.grafikpracy.app > "$GITHUB_WORKSPACE/runtime-pid.txt" || true
+            adb shell pidof pl.grafikpracy.threegf > "$GITHUB_WORKSPACE/runtime-pid.txt" || true
             echo "=== UI DUMP ==="
             cat "$GITHUB_WORKSPACE/runtime-window.xml" 2>/dev/null || true
             echo "=== PROCESS ==="
