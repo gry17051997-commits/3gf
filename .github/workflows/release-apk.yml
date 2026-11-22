@@ -1,0 +1,138 @@
+name: Publish signed 3gf release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  EXPO_NO_DOCTOR: "1"
+  CI: "1"
+
+jobs:
+  release:
+    name: Build and publish signed 3gf APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: GrafikPracy_Final
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: GrafikPracy_Final/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Verify signing secrets
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE" || (echo "Missing ANDROID_KEYSTORE_BASE64 repository secret" && exit 1)
+          test -n "$STORE_PASSWORD" || (echo "Missing ANDROID_KEYSTORE_PASSWORD repository secret" && exit 1)
+          test -n "$KEY_ALIAS" || (echo "Missing ANDROID_KEY_ALIAS repository secret" && exit 1)
+          test -n "$KEY_PASSWORD" || (echo "Missing ANDROID_KEY_PASSWORD repository secret" && exit 1)
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Apply deterministic build fixes
+        run: |
+          node scripts/fix-app-build.js
+          node scripts/fix-chat-build.js
+          node scripts/fix-rotation-switch.js
+
+      - name: Generate Android project
+        run: npx expo prebuild --platform android --no-install --non-interactive
+
+      - name: Configure stable APK signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
+          export ANDROID_KEYSTORE_FILE="$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/release.keystore"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path=Path("android/app/build.gradle")
+          source=path.read_text()
+          start=source.index("signingConfigs {")
+          opening=source.index("{",start)
+          depth=0
+          closing=None
+          for i in range(opening,len(source)):
+              if source[i]=="{": depth+=1
+              elif source[i]=="}":
+                  depth-=1
+                  if depth==0:
+                      closing=i
+                      break
+          if closing is None: raise SystemExit("Cannot locate signingConfigs block")
+          release_config='''
+              release {
+                  storeFile file(System.getenv("ANDROID_KEYSTORE_FILE"))
+                  storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                  keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                  keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+              }
+          '''
+          source=source[:closing]+release_config+source[closing:]
+          build_types=source.index("buildTypes {")
+          release_start=source.index("release {",build_types)
+          marker="signingConfig signingConfigs.debug"
+          marker_at=source.find(marker,release_start)
+          if marker_at<0: raise SystemExit("Cannot locate release signing configuration")
+          source=source[:marker_at]+source[marker_at:].replace(marker,"signingConfig signingConfigs.release",1)
+          path.write_text(source)
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+          path=Path("android/app/build.gradle")
+          source=path.read_text()
+          marker="react {\n"
+          if marker not in source: raise SystemExit("React Gradle block missing")
+          block='''react {
+              cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())
+              bundleCommand = "export:embed"
+              debuggableVariants = []
+          '''
+          path.write_text(source.replace(marker,block,1))
+          PY
+
+      - name: Build release APK
+        working-directory: GrafikPracy_Final/android
+        run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
+
+      - name: Verify APK
+        working-directory: GrafikPracy_Final
+        run: |
+          test -s android/app/build/outputs/apk/release/app-release.apk
+          unzip -t android/app/build/outputs/apk/release/app-release.apk >/dev/null
+          cp android/app/build/outputs/apk/release/app-release.apk 3gf.apk
+          ls -lh 3gf.apk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: 3gf ${{ github.ref_name }}
+          generate_release_notes: true
+          files: GrafikPracy_Final/3gf.apk
