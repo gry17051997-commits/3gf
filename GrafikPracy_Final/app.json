@@ -39,8 +39,8 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Grafik Pracy używa lokalizacji służbowego telefonu, aby pokazywać auto na żywo i automatycznie dobierać raporty.",
-          "locationAlwaysAndWhenInUsePermission": "Grafik Pracy używa lokalizacji służbowego telefonu w tle, aby pokazywać auto na żywo i automatycznie dobierać raporty.",
+          "locationWhenInUsePermission": "3gf używa lokalizacji telefonu, aby rejestrować i udostępniać pozycję oraz historię przejazdów pojazdu.",
+          "locationAlwaysAndWhenInUsePermission": "3gf używa lokalizacji telefonu w tle, aby rejestrować i udostępniać pozycję oraz historię przejazdów pojazdu.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
