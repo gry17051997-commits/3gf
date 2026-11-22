@@ -2,16 +2,16 @@ import React from 'react';
 import {ScrollView, Text, TouchableOpacity, View} from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import AppRuntime from './AppRuntime';
+import TelematicsApp from './TelematicsApp';
 
-const DIAG_KEY = 'grafik-pracy-last-crash-v1';
+const DIAG_KEY = '3gf-last-crash-v1';
 
 function formatError(error, info) {
   const message = String(error?.message || error || 'Nieznany błąd');
   const stack = String(error?.stack || '');
   const component = String(info?.componentStack || '');
   return [
-    'GRAFIK PRACY - DIAGNOSTYKA',
+    '3GF - DIAGNOSTYKA',
     'Czas: ' + new Date().toISOString(),
     '',
     'BŁĄD:',
@@ -81,5 +81,5 @@ class CrashBoundary extends React.Component {
 }
 
 export default function App() {
-  return <CrashBoundary><AppRuntime /></CrashBoundary>;
+  return <CrashBoundary><TelematicsApp /></CrashBoundary>;
 }
