@@ -81,7 +81,7 @@ function summarizeTrip(rows,vehicleId,includePoints) {
  */
 export function buildTrips(rows,{vehicleId='',includePoints=false,gapMs=TRIP_GAP_MS,stationarySplitMs=12*60*1000}={}) {
  const valid=(Array.isArray(rows)?rows:[]).filter(row=>row&&row.id!=null&&asMillis(row.observed_at)!=null&&Number.isFinite(Number(row.latitude))&&Number.isFinite(Number(row.longitude))&&Number(row.latitude)>=-90&&Number(row.latitude)<=90&&Number(row.longitude)>=-180&&Number(row.longitude)<=180&&numeric(row.accuracy)!=null&&numeric(row.accuracy)>0&&numeric(row.accuracy)<=MAX_ACCURACY_METERS).slice().sort((a,b)=>asMillis(a.observed_at)-asMillis(b.observed_at)||Number(a.id)-Number(b.id)).map(pointView);
- if(valid.length<3)return [];
+ if(valid.length<2)return [];
  const segments=valid.slice(1).map((point,index)=>segmentMetrics(valid[index],point));
  const confirmed=segments.map((segment,index)=>{
   if(!segment)return false;
@@ -90,7 +90,7 @@ export function buildTrips(rows,{vehicleId='',includePoints=false,gapMs=TRIP_GAP
   return Boolean((previous&&angleDifference(previous.bearing,segment.bearing)<=85)||(next&&angleDifference(segment.bearing,next.bearing)<=85));
  });
  const groups=[];let current=[],pending=[],lastMovingAt=0;
- const flush=()=>{if(current.length>=3)groups.push(current);current=[];pending=[];lastMovingAt=0;};
+ const flush=()=>{if(current.length>=2)groups.push(current);current=[];pending=[];lastMovingAt=0;};
  for(let i=0;i<segments.length;i++){
   const a=valid[i],b=valid[i+1],at=asMillis(b.observedAt);
   if(confirmed[i]){
