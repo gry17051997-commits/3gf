@@ -371,3 +371,23 @@ test('central API requests have a 15-second timeout covering token, fetch, and r
   assert.match(block, /if\(data\?\.error!==undefined\)e\.code=data\.error/);
 });
 
+
+
+test('Android app update checker reads releases from the 3gf repository and offers manual checks', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  assert.match(app, /APP_UPDATE_CHECK_INTERVAL = 6 \* 60 \* 60 \* 1000/);
+  assert.match(app, /repos\/gry17051997-commits\/3gf\/releases\/latest/);
+  assert.match(app, /Sprawdź aktualizacje teraz/);
+  assert.match(app, /Dostępna aktualizacja v\{update\.version\}/);
+  assert.match(app, /isNewerAppVersion\(version,APP_VERSION\)/);
+});
+
+test('Android build publishes the APK as a versioned GitHub release for in-app updates', async () => {
+  const fs = await import('node:fs/promises');
+  const workflow = await fs.readFile(new URL('../../.github/workflows/build-apk.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /contents: write/);
+  assert.match(workflow, /softprops\/action-gh-release@v2/);
+  assert.match(workflow, /tag_name: v\$\{\{ steps\.app_version\.outputs\.value \}\}/);
+  assert.match(workflow, /app-release\.apk/);
+});
