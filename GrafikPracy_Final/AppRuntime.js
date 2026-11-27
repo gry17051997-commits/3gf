@@ -18,6 +18,7 @@ import {
   Vibration
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import appConfig from './app.json';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import * as Notifications from 'expo-notifications';
@@ -111,6 +112,42 @@ function generateWeek(rotation='P', warehouse='PNT B') {
   return w;
 }
 
+
+const APP_VERSION = appConfig.expo.version;
+const APP_UPDATE_CHECK_KEY = 'grafik-pracy-3gf-app-update-check-v1';
+const APP_UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
+
+function isNewerAppVersion(remote, current) {
+  const parse = value => String(value || '').replace(/^v/i, '').split('.').map(part => Number.parseInt(part, 10) || 0);
+  const a = parse(remote);
+  const b = parse(current);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const av = a[i] || 0;
+    const bv = b[i] || 0;
+    if (av > bv) return true;
+    if (av < bv) return false;
+  }
+  return false;
+}
+
+function AppUpdateBanner({update, onDismiss}) {
+  if (!update) return null;
+  return (
+    <View style={{marginHorizontal:12,marginTop:8,marginBottom:8,padding:12,borderRadius:12,backgroundColor:'#24364b',borderWidth:1,borderColor:'#4f8cff'}}>
+      <Text style={{color:'#fff',fontWeight:'800',fontSize:14}}>Dostępna aktualizacja v{update.version}</Text>
+      <Text style={{color:'#d5e2f2',fontSize:12,marginTop:4}}>Pobierz APK. Po pobraniu otwórz plik i zatwierdź instalację w Androidzie.</Text>
+      <View style={{flexDirection:'row',alignItems:'center',marginTop:10}}>
+        <TouchableOpacity accessibilityRole="button" style={{backgroundColor:'#4f8cff',paddingVertical:9,paddingHorizontal:14,borderRadius:8,marginRight:8}} onPress={() => Linking.openURL(update.url).catch(() => Alert.alert('Aktualizacja','Nie udało się otworzyć pobierania APK.'))}>
+          <Text style={{color:'#fff',fontWeight:'800'}}>POBIERZ APK</Text>
+        </TouchableOpacity>
+        <TouchableOpacity accessibilityRole="button" style={{padding:9}} onPress={onDismiss}>
+          <Text style={{color:'#cbd5e1',fontWeight:'700'}}>Później</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 function ChatComposer({busy,onSend}) {
   const [text,setText]=useState('');
   const submit=async()=>{
@@ -153,6 +190,58 @@ function contrastText(hex) {
 export default function App() {
   const [ready,setReady] = useState(false);
   const [tab,setTab] = useState('grafik');
+  const [appUpdate,setAppUpdate] = useState(null);
+  const [updateCheckBusy,setUpdateCheckBusy] = useState(false);
+  const [updateCheckMessage,setUpdateCheckMessage] = useState('');
+  const checkForAppUpdateNow = async () => {
+    if (Platform.OS !== 'android') return;
+    setUpdateCheckBusy(true);
+    setUpdateCheckMessage('');
+    try {
+      const response=await fetch('https://api.github.com/repos/gry17051997-commits/3gf/releases/latest',{headers:{Accept:'application/vnd.github+json'}});
+      if(!response.ok) throw new Error('GitHub HTTP '+response.status);
+      const release=await response.json();
+      const version=String(release.tag_name||'').replace(/^v/i,'');
+      const apk=(release.assets||[]).find(asset=>/\.apk$/i.test(asset.name||''));
+      if(!version||!apk?.browser_download_url) throw new Error('Brak pliku APK w najnowszym wydaniu.');
+      await AsyncStorage.setItem(APP_UPDATE_CHECK_KEY,String(Date.now()));
+      if(isNewerAppVersion(version,APP_VERSION)){
+        setAppUpdate({version,url:apk.browser_download_url});
+        setUpdateCheckMessage('Znaleziono aktualizację v'+version+'.');
+      }else{
+        setAppUpdate(null);
+        setUpdateCheckMessage('Masz najnowszą wersję aplikacji ('+APP_VERSION+').');
+      }
+    }catch(error){
+      setUpdateCheckMessage('Nie udało się sprawdzić aktualizacji. Spróbuj ponownie za chwilę.');
+    }finally{
+      setUpdateCheckBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+    let cancelled = false;
+    const checkForAppUpdate = async () => {
+      try {
+        const lastCheck = Number(await AsyncStorage.getItem(APP_UPDATE_CHECK_KEY) || 0);
+        if (lastCheck && Date.now() - lastCheck < APP_UPDATE_CHECK_INTERVAL) return;
+        const response = await fetch('https://api.github.com/repos/gry17051997-commits/3gf/releases/latest', {headers:{Accept:'application/vnd.github+json'}});
+        if (!response.ok) return;
+        const release = await response.json();
+        const version = String(release.tag_name || '').replace(/^v/i, '');
+        const apk = (release.assets || []).find(asset => /\.apk$/i.test(asset.name || ''));
+        if (!version || !apk?.browser_download_url) return;
+        await AsyncStorage.setItem(APP_UPDATE_CHECK_KEY, String(Date.now()));
+        if (!cancelled && isNewerAppVersion(version, APP_VERSION)) setAppUpdate({version,url:apk.browser_download_url});
+      } catch (error) {
+        // Brak internetu lub chwilowa niedostępność GitHub nie blokuje aplikacji.
+      }
+    };
+    checkForAppUpdate();
+    return () => { cancelled = true; };
+  }, []);
+
   const [hours,setHours] = useState(10);
   const [rotation,setRotation] = useState('P');
   const [warehouse,setWarehouse] = useState('PNT B');
@@ -2653,6 +2742,15 @@ const settings = (
         <TouchableOpacity style={S.option} onPress={cloudLogout}><Text style={S.optionText}>🚪 Wyloguj</Text><Text style={S.muted}>{cloudUser.email}</Text></TouchableOpacity>
       </>}
 
+      {Platform.OS==='android' && <>
+        <Text style={S.section}>Aktualizacje aplikacji</Text>
+        <TouchableOpacity disabled={updateCheckBusy} style={[S.option,updateCheckBusy&&{opacity:0.55}]} onPress={checkForAppUpdateNow}>
+          <Text style={S.optionText}>🔄 Sprawdź aktualizacje teraz</Text>
+          <Text style={S.muted}>{updateCheckBusy?'Sprawdzanie…':'v'+APP_VERSION}</Text>
+        </TouchableOpacity>
+        {!!updateCheckMessage && <Text style={S.helpLine}>{updateCheckMessage}</Text>}
+      </>}
+
       <Text style={S.section}>Bezpieczeństwo i dane</Text>
       <TouchableOpacity style={S.option} onPress={()=>{setPinEntry('');setPinModal(true)}}>
         <Text style={S.optionText}>🔐 PIN aplikacji</Text>
@@ -2832,6 +2930,15 @@ const settings = (
         <Text style={S.section}>Wspólny grafik online</Text>
         <View style={S.option}><Text style={S.optionText}>☁️ Status</Text><Text style={S.muted}>{cloudRole==='admin'?'Administrator':'Tylko odczyt'}</Text></View>
         <TouchableOpacity style={S.option} onPress={cloudLogout}><Text style={S.optionText}>🚪 Wyloguj</Text><Text style={S.muted}>{cloudUser.email}</Text></TouchableOpacity>
+      </>}
+
+      {Platform.OS==='android' && <>
+        <Text style={S.section}>Aktualizacje aplikacji</Text>
+        <TouchableOpacity disabled={updateCheckBusy} style={[S.option,updateCheckBusy&&{opacity:0.55}]} onPress={checkForAppUpdateNow}>
+          <Text style={S.optionText}>🔄 Sprawdź aktualizacje teraz</Text>
+          <Text style={S.muted}>{updateCheckBusy?'Sprawdzanie…':'v'+APP_VERSION}</Text>
+        </TouchableOpacity>
+        {!!updateCheckMessage && <Text style={S.helpLine}>{updateCheckMessage}</Text>}
       </>}
 
       <Text style={S.section}>Bezpieczeństwo i dane</Text>
@@ -3163,6 +3270,7 @@ const settings = (
         <View style={S.scrim}><SafeAreaView style={S.container}><View style={S.loading}>
           <View style={S.modal}>
             <Text style={S.modalTitle}>GRAFIK PRACY ☁️</Text>
+            <AppUpdateBanner update={appUpdate} onDismiss={()=>setAppUpdate(null)}/>
             <Text style={S.helpLine}>Zaloguj się, aby korzystać ze wspólnego grafiku.</Text>
             <TextInput value={authEmail} onChangeText={setAuthEmail} autoCapitalize="none" keyboardType="email-address" placeholder="E-mail" placeholderTextColor="#777" style={S.input}/>
             <TextInput value={authPassword} onChangeText={setAuthPassword} secureTextEntry placeholder="Hasło" placeholderTextColor="#777" style={[S.input,{marginTop:8}]}/>
@@ -3195,6 +3303,7 @@ const settings = (
     <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
       <View style={S.scrim}>
         <SafeAreaView style={S.container}>
+          <AppUpdateBanner update={appUpdate} onDismiss={()=>setAppUpdate(null)}/>
           {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
           {!!localStorageError && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>⚠️ {localStorageError}</Text></View>}
           {CENTRAL_API_ENABLED && cloudUser && <View style={S.cloudStatus}>
